@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+  fileserver:
+    build: .
+    container_name: iam-fileserver
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_PATH=/app/data
+      - DOWNLOAD_PATH=/app/downloads
+      - CHECK_INTERVAL_HOURS=6
+      - HEADLESS=true
+      - DEBUG=false
+      - ALLOWED_ORIGINS=https://fileserver.terhorst.io,http://localhost:3001
+      # BMW Credentials (set via .env file or docker secrets)
+      - BMW_USERNAME=${BMW_USERNAME}
+      - BMW_PASSWORD=${BMW_PASSWORD}
+      - BMW_AUTH_URL=${BMW_AUTH_URL:-https://aos.bmwgroup.com/auth/login}
+      - BMW_ISTA_P_URL=${BMW_ISTA_P_URL:-https://aos.bmwgroup.com/ista-p}
+      - BMW_ISTA_NEXT_URL=${BMW_ISTA_NEXT_URL:-https://aos.bmwgroup.com/ista-next}
+    volumes:
+      - fileserver_data:/app/data
+      - fileserver_downloads:/app/downloads  
+      - fileserver_logs:/app/logs
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - fileserver_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Optional: Reverse proxy with Traefik
+  traefik:
+    image: traefik:v3.0
+    container_name: iam-traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.email=admin@terhorst.io
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_acme:/acme.json
+    networks:
+      - fileserver_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.fileserver.rule=Host(`fileserver.terhorst.io`)"
+      - "traefik.http.routers.fileserver.entrypoints=websecure"
+      - "traefik.http.routers.fileserver.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.fileserver.service=fileserver"
+      - "traefik.http.services.fileserver.loadbalancer.server.port=3001"
+      # Redirect HTTP to HTTPS
+      - "traefik.http.routers.fileserver-http.rule=Host(`fileserver.terhorst.io`)"
+      - "traefik.http.routers.fileserver-http.entrypoints=web"
+      - "traefik.http.routers.fileserver-http.middlewares=https-redirect"
+      - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.https-redirect.redirectscheme.permanent=true"
+    profiles:
+      - proxy
+
+volumes:
+  fileserver_data:
+    driver: local
+  fileserver_downloads:
+    driver: local
+  fileserver_logs:
+    driver: local
+  traefik_acme:
+    driver: local
+
+networks:
+  fileserver_network:
+    driver: bridge
