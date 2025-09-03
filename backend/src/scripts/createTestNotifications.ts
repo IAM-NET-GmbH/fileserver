@@ -3,10 +3,11 @@
 import { Database } from '../database/database';
 import { NotificationService } from '../services/NotificationService';
 import { UserService } from '../services/UserService';
+import { logger } from '../utils/logger';
 
 async function createTestNotifications() {
   try {
-    console.log('🔔 Creating test notifications...');
+    logger.info('🔔 Creating test notifications...');
     
     // Initialize database
     const database = Database.getInstance();
@@ -18,34 +19,34 @@ async function createTestNotifications() {
     // Get all users
     const users = await userService.getAllUsers();
     if (users.length === 0) {
-      console.log('❌ No users found. Please create users first.');
+      logger.warn('❌ No users found. Please create users first.');
       return;
     }
     
     const firstUser = users[0];
-    console.log(`📧 Creating notifications for user: ${firstUser.email}`);
+    logger.info(`📧 Creating notifications for user: ${firstUser.email}`);
     
     // Create various test notifications
     await notificationService.createNotification({
       user_id: firstUser.id,
       type: 'success',
-      title: 'Willkommen zum Benachrichtigungssystem!',
-      message: 'Das neue Benachrichtigungssystem ist jetzt aktiv. Sie erhalten hier wichtige Updates und Informationen.',
+      title: 'Welcome to the Notification System!',
+      message: 'The new notification system is now active. You will receive important updates and information here.',
     });
     
     await notificationService.createNotification({
       user_id: firstUser.id,
       type: 'info',
-      title: 'System Update verfügbar',
-      message: 'Eine neue Version des IAM File Servers ist verfügbar. Das Update kann über die Einstellungen installiert werden.',
+      title: 'System Update Available',
+      message: 'A new version of the IAM File Server is available. The update can be installed via the settings.',
       action_url: '/settings'
     });
     
     await notificationService.createNotification({
       user_id: firstUser.id,
       type: 'warning', 
-      title: 'Speicherplatz wird knapp',
-      message: 'Der verfügbare Speicherplatz beträgt nur noch 15%. Bitte überprüfen Sie Ihre Downloads.',
+      title: 'Storage Space Running Low',
+      message: 'Available storage space is only 15% remaining. Please check your downloads.',
       action_url: '/downloads'
     });
     
@@ -53,24 +54,24 @@ async function createTestNotifications() {
       await notificationService.createNotification({
         user_id: firstUser.id,
         type: 'system',
-        title: 'Backup erfolgreich',
-        message: 'Das tägliche Backup wurde erfolgreich um 02:00 Uhr erstellt. Alle Daten sind gesichert.',
+        title: 'Backup Successful',
+        message: 'The daily backup was successfully created at 02:00. All data has been secured.',
       });
       
       await notificationService.createNotification({
         user_id: firstUser.id,
         type: 'error',
-        title: 'Provider Fehler',
-        message: 'Provider "Example Drive" ist offline. Automatische Downloads sind temporär pausiert.',
+        title: 'Provider Error',
+        message: 'Provider "Example Drive" is offline. Automatic downloads are temporarily paused.',
         action_url: '/providers'
       });
     }
     
-    console.log('✅ Test notifications created successfully!');
-    console.log('🎯 Klicken Sie auf die Glocke im Header, um die Benachrichtigungen zu sehen.');
+    logger.info('✅ Test notifications created successfully!');
+    logger.info('🎯 Click on the bell in the header to see the notifications.');
     
   } catch (error) {
-    console.error('❌ Error creating test notifications:', error);
+    logger.error('❌ Error creating test notifications:', error);
   }
   
   process.exit(0);

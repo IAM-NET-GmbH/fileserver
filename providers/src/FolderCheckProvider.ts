@@ -35,7 +35,7 @@ export class FolderCheckProvider extends BaseProvider {
   }
 
   async initialize(): Promise<void> {
-    this.logger.info('🚀 Folder Check Provider wird initialisiert...');
+    this.logger.info('🚀 Folder Check Provider initializing...');
     
     const config = this.getFolderCheckConfig();
     
@@ -48,11 +48,11 @@ export class FolderCheckProvider extends BaseProvider {
     await this.performInitialScan();
     
     this.updateStatus(ProviderStatus.ACTIVE);
-    this.logger.info('✅ Folder Check Provider erfolgreich initialisiert');
+    this.logger.info('✅ Folder Check Provider successfully initialized');
   }
 
   private async performInitialScan(): Promise<void> {
-    this.logger.info('📂 Führe initialen Scan der Ordner-Struktur durch...');
+    this.logger.info('📂 Performing initial scan of folder structure...');
     
     const config = this.getFolderCheckConfig();
     
@@ -64,7 +64,7 @@ export class FolderCheckProvider extends BaseProvider {
       await this.scanDirectory(subfolderPath, subfolder);
     }
     
-    this.logger.info(`📊 ${this.knownFiles.size} Dateien im initialen Scan gefunden`);
+    this.logger.info(`📊 ${this.knownFiles.size} files found in initial scan`);
     this.lastScanTime = new Date();
   }
 
@@ -75,7 +75,7 @@ export class FolderCheckProvider extends BaseProvider {
         .filter(entry => entry.isDirectory())
         .map(entry => entry.name);
     } catch (error) {
-      this.logger.error(`❌ Fehler beim Lesen der Unterordner von ${dirPath}: ${error}`);
+      this.logger.error(`❌ Error reading subdirectories of ${dirPath}: ${error}`);
       return [];
     }
   }
@@ -108,12 +108,12 @@ export class FolderCheckProvider extends BaseProvider {
         }
       }
     } catch (error) {
-      this.logger.error(`❌ Fehler beim Scannen von ${dirPath}: ${error}`);
+      this.logger.error(`❌ Error scanning ${dirPath}: ${error}`);
     }
   }
 
   async checkForUpdates(): Promise<ProviderDownload[]> {
-    this.logger.info('🔍 Prüfe auf neue Dateien in Ordner-Struktur...');
+    this.logger.info('🔍 Checking for new files in folder structure...');
     
     const config = this.getFolderCheckConfig();
     const newFiles: ProviderDownload[] = [];
@@ -132,9 +132,9 @@ export class FolderCheckProvider extends BaseProvider {
     this.updateLastCheck(currentScanTime);
     
     if (newFiles.length > 0) {
-      this.logger.info(`✅ ${newFiles.length} neue/aktualisierte Dateien gefunden`);
+      this.logger.info(`✅ ${newFiles.length} new/updated files found`);
     } else {
-      this.logger.info('📋 Keine neuen Updates gefunden');
+      this.logger.info('📋 No new updates found');
     }
     
     return newFiles;
@@ -192,15 +192,15 @@ export class FolderCheckProvider extends BaseProvider {
             this.knownFiles.set(fullPath, fileInfo);
             
             if (!existingFile) {
-              this.logger.debug(`📂 Neue Datei gefunden: ${relativePath}`);
+              this.logger.debug(`📂 New file found: ${relativePath}`);
             } else {
-              this.logger.debug(`🔄 Datei aktualisiert: ${relativePath}`);
+              this.logger.debug(`🔄 File updated: ${relativePath}`);
             }
           }
         }
       }
     } catch (error) {
-      this.logger.error(`❌ Fehler beim Prüfen von ${dirPath}: ${error}`);
+      this.logger.error(`❌ Error checking ${dirPath}: ${error}`);
     }
     
     return newFiles;
@@ -230,14 +230,14 @@ export class FolderCheckProvider extends BaseProvider {
   }
 
   async downloadFile(download: ProviderDownload, targetPath: string): Promise<boolean> {
-    this.logger.info(`📂 Kopiere Datei: ${download.displayName}`);
+    this.logger.info(`📂 Copying file: ${download.displayName}`);
 
     try {
       const sourcePath = download.url; // URL is actually the local path
       
       // Check if source file still exists
       if (!await fs.pathExists(sourcePath)) {
-        throw new Error(`Quelldatei nicht gefunden: ${sourcePath}`);
+        throw new Error(`Source file not found: ${sourcePath}`);
       }
 
       // Ensure target directory exists
@@ -250,13 +250,13 @@ export class FolderCheckProvider extends BaseProvider {
       // Verify copy
       const stats = await fs.stat(targetPath);
       if (stats.size > 0) {
-        this.logger.info(`✅ Datei erfolgreich kopiert: ${path.basename(targetPath)} (${this.formatFileSize(stats.size)})`);
+        this.logger.info(`✅ File successfully copied: ${path.basename(targetPath)} (${this.formatFileSize(stats.size)})`);
         return true;
       } else {
         throw new Error('Kopierte Datei ist leer');
       }
     } catch (error) {
-      this.logger.error(`❌ Fehler beim Kopieren der Datei: ${error}`);
+      this.logger.error(`❌ Error copying file: ${error}`);
       
       // Clean up failed copy
       try {
@@ -286,7 +286,7 @@ export class FolderCheckProvider extends BaseProvider {
   }
 
   async scanExistingFiles(): Promise<ProviderDownload[]> {
-    this.logger.info('📂 Scanne existierende Dateien für initiale Registrierung...');
+    this.logger.info('📂 Scanning existing files for initial registration...');
     
     const config = this.getFolderCheckConfig();
     if (!await fs.pathExists(config.watchPath)) {
@@ -303,7 +303,7 @@ export class FolderCheckProvider extends BaseProvider {
       existingFiles.push(...subfolderFiles);
     }
 
-    this.logger.info(`📊 ${existingFiles.length} existierende Dateien zur Registrierung gefunden`);
+    this.logger.info(`📊 ${existingFiles.length} existing files found for registration`);
     return existingFiles;
   }
 
@@ -357,15 +357,15 @@ export class FolderCheckProvider extends BaseProvider {
         }
       }
     } catch (error) {
-      this.logger.error(`❌ Fehler beim Scannen von ${dirPath}: ${error}`);
+      this.logger.error(`❌ Error scanning ${dirPath}: ${error}`);
     }
     
     return files;
   }
 
   async cleanup(): Promise<void> {
-    this.logger.info('🧹 Folder Check Provider wird bereinigt...');
+    this.logger.info('🧹 Folder Check Provider cleaning up...');
     this.knownFiles.clear();
-    this.logger.info('✅ Folder Check Provider bereinigt');
+    this.logger.info('✅ Folder Check Provider cleaned up');
   }
 }

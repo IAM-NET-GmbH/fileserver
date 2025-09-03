@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { ProviderService } from '../services/ProviderService';
 import { ApiResponse } from '@iam-fileserver/shared';
+import { logger } from '../utils/logger';
 
 const router = Router();
 let providerService: ProviderService | null = null;
@@ -15,7 +16,7 @@ const initializeProviderService = async (): Promise<ProviderService> => {
   
   // If currently initializing, wait for it to complete
   if (isInitializing) {
-    console.log('⏳ ProviderService initialization already in progress, waiting...');
+    logger.info('⏳ ProviderService initialization already in progress, waiting...');
     // Wait for initialization to complete
     while (isInitializing) {
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -27,13 +28,13 @@ const initializeProviderService = async (): Promise<ProviderService> => {
   
   try {
     isInitializing = true;
-    console.log('🚀 Initializing ProviderService for the first time...');
+    logger.info('🚀 Initializing ProviderService for the first time...');
     providerService = new ProviderService();
     await providerService.initialize();
-    console.log('✅ ProviderService initialized successfully');
+    logger.info('✅ ProviderService initialized successfully');
     return providerService;
   } catch (error) {
-    console.error('❌ Failed to initialize ProviderService:', error);
+    logger.error('❌ Failed to initialize ProviderService:', error);
     providerService = null; // Reset on error
     throw error;
   } finally {
@@ -188,7 +189,7 @@ router.post('/:id/check', async (req: Request, res: Response) => {
     
     // Run check in background
     service.checkProvider(id).catch(error => {
-      console.error(`Background check failed for provider ${id}:`, error);
+      logger.error(`Background check failed for provider ${id}:`, error);
     });
 
     const response: ApiResponse = {
@@ -251,7 +252,7 @@ router.post('/:id/rescan', async (req: Request, res: Response) => {
     
     // Run rescan in background
     service.rescanProviderFiles(id).catch(error => {
-      console.error(`Background rescan failed for provider ${id}:`, error);
+      logger.error(`Background rescan failed for provider ${id}:`, error);
     });
 
     const response: ApiResponse = {
@@ -278,7 +279,7 @@ router.post('/check-all', async (req: Request, res: Response) => {
     
     // Run checks in background
     service.checkAllProviders().catch(error => {
-      console.error('Background check failed for all providers:', error);
+      logger.error('Background check failed for all providers:', error);
     });
 
     const response: ApiResponse = {

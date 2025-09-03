@@ -6,6 +6,7 @@ import { FileService } from './FileService';
 import { ActivityLogger } from '../models/Activity';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
+import { logger, logProvider } from '../utils/logger';
 
 export class ProviderService {
   private providers: Map<string, BaseProvider> = new Map();
@@ -14,12 +15,12 @@ export class ProviderService {
   private fileService: FileService;
   private isInitialized = false;
   
-  // Mutex-like locking für Provider-Operationen
+  // Mutex-like locking for provider operations
   private providerUpdateLocks: Map<string, Promise<void>> = new Map();
   private providerScanLocks: Map<string, Promise<void>> = new Map();
 
   constructor() {
-    console.log('🏗️ ProviderService constructor called');
+    logProvider.constructorCalled();
     this.providerRepository = new ProviderRepository();
     this.downloadRepository = new DownloadRepository();
     this.fileService = new FileService();
@@ -27,11 +28,11 @@ export class ProviderService {
 
   async initialize(): Promise<void> {
     if (this.isInitialized) {
-      console.log('⚠️ ProviderService already initialized, skipping...');
+      logger.warn('⚠️ ProviderService already initialized, skipping...');
       return;
     }
     
-    console.log('🔍 Starting ProviderService initialization...');
+    logProvider.initStarted();
     
     try {
       await this.loadProviders();
@@ -40,39 +41,39 @@ export class ProviderService {
       // Note: Scheduler will be started by individual providers if needed
       
       this.isInitialized = true;
-      console.log('✅ ProviderService initialization completed');
+      logProvider.initCompleted();
     } catch (error) {
-      console.error('❌ ProviderService initialization failed:', error);
+      logger.error('❌ ProviderService initialization failed:', error);
       this.isInitialized = false;
       throw error;
     }
   }
 
   private async loadProviders(): Promise<void> {
-    console.log('📂 Loading providers from database...');
+    logProvider.loadingFromDb();
     
     // Create default providers if they don't exist
     if (!await this.providerRepository.exists('bmw-aos')) {
-      console.log('⚡ Creating BMW Provider...');
+      logger.info('⚡ Creating BMW Provider...');
       await this.createDefaultBMWProvider();
     }
 
-    // VW Provider wird nicht mehr automatisch erstellt - kann über Frontend konfiguriert werden
+    // VW Provider is no longer automatically created - can be configured via Frontend
     
     // Load all existing providers from database
     const providerConfigs = await this.providerRepository.findAll();
-    console.log(`📋 Found ${providerConfigs.length} providers in database`);
+    logProvider.foundProviders(providerConfigs.length);
     
     for (const config of providerConfigs) {
       if (config.enabled) {
-        console.log(`🔄 Loading enabled provider: ${config.id}`);
+        logProvider.loadingEnabled(config.id);
         await this.createProvider(config);
       } else {
-        console.log(`⏸️ Skipping disabled provider: ${config.id}`);
+        logProvider.skippingDisabled(config.id);
       }
     }
     
-    console.log(`📊 Loaded ${this.providers.size} active providers`);
+    logProvider.loadedActive(this.providers.size);
   }
 
   private async createDefaultBMWProvider(): Promise<void> {
@@ -95,7 +96,7 @@ export class ProviderService {
     };
 
     await this.providerRepository.create(bmwProvider);
-    ActivityLogger.logSystemEvent(`BMW AOS Provider erstellt`, 'success');
+    ActivityLogger.logSystemEvent(`BMW AOS Provider created`, 'success');
   }
 
 
@@ -113,7 +114,7 @@ export class ProviderService {
         break;
       // Add more providers here as needed
       default:
-        console.warn(`Unknown provider type: ${config.id}`);
+        logger.warn(`Unknown provider type: ${config.id}`);
         return;
     }
 
@@ -131,15 +132,15 @@ export class ProviderService {
         // Scan and register existing files on first initialization
         try {
           await this.withProviderScanLock(id, async () => {
-            console.log(`📂 Starte initialer Scan für Provider ${id}...`);
+            logProvider.scanStarted(id);
             await this.scanAndRegisterExistingFiles(id);
           });
         } catch (error) {
-          console.warn(`⚠️ Initialer Scan für Provider ${id} übersprungen (bereits aktiv): ${error}`);
+          logger.warn(`⚠️ Initial scan for provider ${id} skipped (already active): ${error}`);
         }
         
       } catch (error) {
-        console.error(`Failed to initialize provider ${id}:`, error);
+        logger.error(`Failed to initialize provider ${id}:`, error);
         await this.providerRepository.updateStatus(id, ProviderStatus.ERROR);
       }
     }
@@ -180,19 +181,19 @@ export class ProviderService {
             }
           }
         } catch (error) {
-          console.error(`Error processing download from ${providerId}:`, error);
+          logger.error(`Error processing download from ${providerId}:`, error);
           errorCount++;
         }
       }
 
       await this.providerRepository.updateStatus(providerId, ProviderStatus.ACTIVE, new Date());
-      console.log(`Provider ${providerId}: ${successCount} successful, ${errorCount} failed downloads`);
+      logger.info(`Provider ${providerId}: ${successCount} successful, ${errorCount} failed downloads`);
       
       const providerConfig = await this.providerRepository.findById(providerId);
       ActivityLogger.logProviderCheck(providerId, providerConfig?.name || providerId, 'success');
 
     } catch (error) {
-      console.error(`Error checking provider ${providerId}:`, error);
+      logger.error(`Error checking provider ${providerId}:`, error);
       await this.providerRepository.updateStatus(providerId, ProviderStatus.ERROR);
       
       const providerConfig = await this.providerRepository.findById(providerId);
@@ -228,8 +229,21 @@ export class ProviderService {
       const success = await provider.downloadFile(download, targetPath);
       
       if (success) {
-        // Get file stats
-        const fileStats = await this.fileService.getFileStats(targetPath);
+        // For BMW provider, find the actual file location
+        let actualFilePath = targetPath;
+        
+        if (providerId === 'bmw-aos') {
+          // BMW provider stores files in its own structure, find the actual file
+          const providerConfig = await this.providerRepository.findById(providerId);
+          if (providerConfig?.config?.downloadPath) {
+            const appType = download.metadata?.appType || 'unknown';
+            const bmwFileName = this.extractFileName(download.url) || fileName;
+            actualFilePath = path.join(providerConfig.config.downloadPath, appType, bmwFileName);
+          }
+        }
+        
+        // Get file stats from actual location
+        const fileStats = await this.fileService.getFileStats(actualFilePath);
         
         // Create download record
         const downloadItem: Omit<DownloadItem, 'createdAt'> = {
@@ -240,7 +254,7 @@ export class ProviderService {
           description: download.displayName,
           version: download.version,
           fileName,
-          filePath: targetPath,
+          filePath: actualFilePath,
           fileSize: fileStats.size || 0,
           downloadedAt: new Date(),
           url: download.url,
@@ -256,7 +270,7 @@ export class ProviderService {
 
       return false;
     } catch (error) {
-      console.error(`Error processing download from ${providerId}:`, error);
+      logger.error(`Error processing download from ${providerId}:`, error);
       ActivityLogger.logDownload(providerId, download.title, 'error');
       return false;
     }
@@ -277,13 +291,13 @@ export class ProviderService {
     if (!provider) return;
 
     try {
-      console.log(`🔍 Scanning existing files for provider ${providerId}...`);
+      logProvider.scanningFiles(providerId);
       
       // Get existing files from provider
       const existingFiles = await provider.scanExistingFiles();
       
       if (existingFiles.length === 0) {
-        console.log(`📋 No existing files found for provider ${providerId}`);
+        logProvider.noExistingFiles(providerId);
         return;
       }
 
@@ -307,21 +321,21 @@ export class ProviderService {
             // Register existing file as download
             await this.registerExistingFile(providerId, fileDownload);
             registeredCount++;
-            console.log(`📝 Registering new file: ${fileDownload.title}`);
+            logger.info(`📝 Registering new file: ${fileDownload.title}`);
           } else {
             skippedCount++;
-            console.log(`⏭️ Skipping duplicate file: ${fileDownload.title}`);
+            logger.info(`⏭️ Skipping duplicate file: ${fileDownload.title}`);
           }
         } catch (error) {
-          console.error(`Error registering existing file ${fileDownload.title}:`, error);
+          logger.error(`Error registering existing file ${fileDownload.title}:`, error);
         }
       }
 
-      console.log(`✅ Provider ${providerId}: ${registeredCount} existing files registered, ${skippedCount} already known`);
-      ActivityLogger.logSystemEvent(`${registeredCount} existierende Dateien für ${providerId} registriert`, 'success');
+      logger.info(`✅ Provider ${providerId}: ${registeredCount} existing files registered, ${skippedCount} already known`);
+      ActivityLogger.logSystemEvent(`${registeredCount} existing files registered for ${providerId}`, 'success');
       
     } catch (error) {
-      console.error(`Error scanning existing files for provider ${providerId}:`, error);
+      logger.error(`Error scanning existing files for provider ${providerId}:`, error);
     }
   }
 
@@ -353,10 +367,10 @@ export class ProviderService {
       };
 
       await this.downloadRepository.create(downloadItem);
-      console.log(`📝 Registered existing file: ${download.title}`);
+      logger.info(`📝 Registered existing file: ${download.title}`);
       
     } catch (error) {
-      console.error(`Error registering existing file ${download.title}:`, error);
+      logger.error(`Error registering existing file ${download.title}:`, error);
     }
   }
 
@@ -387,7 +401,7 @@ export class ProviderService {
 
   async getAllProviders(): Promise<Provider[]> {
     const providers = await this.providerRepository.findAll();
-    console.log('🔍 DEBUG: getAllProviders returned:', providers.map(p => ({ id: p.id, name: p.name, enabled: p.enabled })));
+    logger.debug('🔍 DEBUG: getAllProviders returned:', providers.map(p => ({ id: p.id, name: p.name, enabled: p.enabled })));
     return providers;
   }
 
@@ -410,21 +424,21 @@ export class ProviderService {
       if (providerInstance) {
         try {
           await providerInstance.initialize();
-          console.log(`✅ Provider ${providerId} successfully enabled and initialized`);
+          logger.info(`✅ Provider ${providerId} successfully enabled and initialized`);
           
           // Scan existing files for newly enabled provider
           try {
             await this.withProviderScanLock(providerId, async () => {
-              console.log(`📂 Starte Scan für neu aktivierten Provider ${providerId}...`);
+              logger.info(`📂 Starting scan for newly activated provider ${providerId}...`);
               await this.scanAndRegisterExistingFiles(providerId);
             });
           } catch (error) {
-            console.warn(`⚠️ Scan für Provider ${providerId} übersprungen (bereits aktiv): ${error}`);
+            logger.warn(`⚠️ Scan for provider ${providerId} skipped (already active): ${error}`);
           }
           
           ActivityLogger.logSystemEvent(`Provider ${provider.name} aktiviert`, 'success');
         } catch (error) {
-          console.error(`❌ Failed to initialize provider ${providerId}:`, error);
+          logger.error(`❌ Failed to initialize provider ${providerId}:`, error);
           await this.providerRepository.updateStatus(providerId, ProviderStatus.ERROR);
           ActivityLogger.logSystemEvent(`Fehler beim Aktivieren von ${provider.name}`, 'error');
         }
@@ -444,7 +458,7 @@ export class ProviderService {
   }
 
   async createNewProvider(providerData: { id: string, name: string, description: string, type: string, config: any }): Promise<void> {
-    console.log('🆕 Creating new provider:', providerData.id);
+    logger.info(`🆕 Creating new provider: ${providerData.id}`);
     
     const newProvider: Provider = {
       id: providerData.id,
@@ -470,11 +484,11 @@ export class ProviderService {
         // Scan existing files for newly created provider
         try {
           await this.withProviderScanLock(providerData.id, async () => {
-            console.log(`📂 Starte Scan für neu erstellten Provider ${providerData.id}...`);
+            logger.info(`📂 Starting scan for newly created provider ${providerData.id}...`);
             await this.scanAndRegisterExistingFiles(providerData.id);
           });
         } catch (error) {
-          console.warn(`⚠️ Scan für Provider ${providerData.id} übersprungen (bereits aktiv): ${error}`);
+          logger.warn(`⚠️ Scan for provider ${providerData.id} skipped (already active): ${error}`);
         }
         
         ActivityLogger.logSystemEvent(`Provider "${providerData.name}" erstellt und gestartet`, 'success');
@@ -515,8 +529,8 @@ export class ProviderService {
   private async withProviderScanLock<T>(providerId: string, operation: () => Promise<T>): Promise<T> {
     // Prüfen ob bereits ein Scan läuft
     if (this.providerScanLocks.has(providerId)) {
-      console.log(`⚠️ Scan für Provider ${providerId} läuft bereits, überspringe...`);
-      throw new Error(`Scan für Provider ${providerId} läuft bereits`);
+      logger.warn(`⚠️ Scan for provider ${providerId} already running, skipping...`);
+      throw new Error(`Scan for provider ${providerId} already running`);
     }
 
     // Neue Lock erstellen
@@ -535,7 +549,7 @@ export class ProviderService {
 
   async updateProviderConfig(providerId: string, config: any, name?: string, description?: string): Promise<void> {
     return this.withProviderUpdateLock(providerId, async () => {
-      console.log(`🔒 Provider-Update-Lock für ${providerId} erworben`);
+      logger.info(`🔒 Provider update lock acquired for ${providerId}`);
       
       const updateData: any = { config };
       if (name !== undefined) updateData.name = name;
@@ -546,14 +560,14 @@ export class ProviderService {
       // Restart provider with new config
       const provider = this.providers.get(providerId);
       if (provider) {
-        console.log(`🧹 Bereinige bestehenden Provider ${providerId}...`);
+        logger.info(`🧹 Cleaning up existing provider ${providerId}...`);
         await provider.cleanup();
         this.providers.delete(providerId);
       }
 
       const updatedProvider = await this.providerRepository.findById(providerId);
       if (updatedProvider && updatedProvider.enabled) {
-        console.log(`🚀 Erstelle neuen Provider ${providerId} mit aktualisierter Konfiguration...`);
+        logger.info(`🚀 Creating new provider ${providerId} with updated configuration...`);
         await this.createProvider(updatedProvider);
         const newProvider = this.providers.get(providerId);
         if (newProvider) {
@@ -561,22 +575,22 @@ export class ProviderService {
         }
       }
       
-      console.log(`✅ Provider-Update für ${providerId} abgeschlossen`);
+      logger.info(`✅ Provider update completed for ${providerId}`);
     });
   }
 
   async rescanProviderFiles(providerId: string): Promise<void> {
     return this.withProviderScanLock(providerId, async () => {
-      console.log(`🔍 Provider-Scan-Lock für ${providerId} erworben`);
+      logger.info(`🔍 Provider scan lock acquired for ${providerId}`);
       
       const provider = this.providers.get(providerId);
       if (!provider) {
         throw new Error(`Provider ${providerId} not found`);
       }
 
-      console.log(`📂 Starte Rescan für Provider ${providerId}...`);
+      logger.info(`📂 Starting rescan for provider ${providerId}...`);
       await this.scanAndRegisterExistingFiles(providerId);
-      console.log(`✅ Rescan für Provider ${providerId} abgeschlossen`);
+      logger.info(`✅ Rescan completed for provider ${providerId}`);
     });
   }
 

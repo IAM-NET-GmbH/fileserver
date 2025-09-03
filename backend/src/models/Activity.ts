@@ -49,17 +49,17 @@ export class ActivityLogger {
       providerId,
       downloadId,
       status,
-      details: status === 'success' ? 'Download erfolgreich abgeschlossen' : 'Download fehlgeschlagen'
+      details: status === 'success' ? 'Download completed successfully' : 'Download failed'
     });
   }
 
   static logProviderCheck(providerId: string, providerName: string, status: 'success' | 'error'): void {
     this.log({
       type: 'provider_check',
-      action: `Provider "${providerName}" überprüft`,
+      action: `Provider "${providerName}" checked`,
       providerId,
       status,
-      details: status === 'success' ? 'Überprüfung erfolgreich' : 'Überprüfung fehlgeschlagen'
+      details: status === 'success' ? 'Check successful' : 'Check failed'
     });
   }
 

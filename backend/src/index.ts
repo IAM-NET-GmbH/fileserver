@@ -2,6 +2,7 @@ import { createApp } from './app';
 import { ProviderService } from './services/ProviderService';
 import { CronJob } from 'cron';
 import dotenv from 'dotenv';
+import { logger, logServer, logProvider } from './utils/logger';
 
 // Load environment variables
 dotenv.config();
@@ -13,19 +14,19 @@ let providerService: ProviderService;
 
 async function startServer() {
   try {
-    console.log('🚀 Starting IAM File Server...');
+    logServer.starting();
     
     // Create and start Express app
     const app = await createApp();
     
     const server = app.listen(PORT, () => {
-      console.log(`✅ Server running on port ${PORT}`);
-      console.log(`📡 API available at: http://localhost:${PORT}/api`);
-      console.log(`🌐 Frontend available at: http://localhost:${PORT}`);
+      logServer.started(Number(PORT));
+      logServer.apiReady(Number(PORT));
+      logServer.frontendReady(Number(PORT));
     });
 
     // Initialize provider service
-    console.log('🔧 Initializing Provider Service...');
+    logProvider.initializing();
     providerService = new ProviderService();
     await providerService.initialize();
     
@@ -38,22 +39,22 @@ async function startServer() {
 
     return server;
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    logger.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 }
 
 function setupAutomaticChecks() {
-  console.log(`⏰ Setting up automatic provider checks every ${CHECK_INTERVAL_HOURS} hours`);
+  logProvider.cronSetup(CHECK_INTERVAL_HOURS);
   
   // Run initial check after 1 minute
   setTimeout(async () => {
-    console.log('🔍 Running initial provider check...');
+    logProvider.initialCheck();
     try {
       await providerService.checkAllProviders();
-      console.log('✅ Initial provider check completed');
+      logProvider.initialCheckComplete();
     } catch (error) {
-      console.error('❌ Initial provider check failed:', error);
+      logger.error('❌ Initial provider check failed:', error);
     }
   }, 60000); // 1 minute delay
 
@@ -61,55 +62,55 @@ function setupAutomaticChecks() {
   const cronPattern = `0 */${CHECK_INTERVAL_HOURS} * * *`; // Every X hours
   
   const job = new CronJob(cronPattern, async () => {
-    console.log('🔄 Running scheduled provider check...');
+    logProvider.scheduledCheck();
     try {
       await providerService.checkAllProviders();
-      console.log('✅ Scheduled provider check completed');
+      logProvider.scheduledCheckComplete();
     } catch (error) {
-      console.error('❌ Scheduled provider check failed:', error);
+      logger.error('❌ Scheduled provider check failed:', error);
     }
   });
 
   job.start();
-  console.log(`✅ Cron job scheduled with pattern: ${cronPattern}`);
+  logProvider.cronScheduled(cronPattern);
 }
 
 async function gracefulShutdown(server: any) {
-  console.log('\n👋 Graceful shutdown initiated...');
+  logServer.shutdown();
   
   // Close server
   server.close(async () => {
-    console.log('📡 HTTP server closed');
+    logger.info('📡 HTTP server closed');
     
     // Cleanup provider service
     if (providerService) {
       try {
         await providerService.cleanup();
-        console.log('🧹 Provider service cleaned up');
+        logger.info('🧹 Provider service cleaned up');
       } catch (error) {
-        console.error('❌ Error during provider cleanup:', error);
+        logger.error('❌ Error during provider cleanup:', error);
       }
     }
     
-    console.log('✅ Graceful shutdown completed');
+    logServer.shutdownComplete();
     process.exit(0);
   });
   
   // Force shutdown after 30 seconds
   setTimeout(() => {
-    console.error('⚠️  Forced shutdown after timeout');
+    logger.error('⚠️  Forced shutdown after timeout');
     process.exit(1);
   }, 30000);
 }
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('🚨 Uncaught Exception:', error);
+  logger.error('🚨 Uncaught Exception:', error);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('🚨 Unhandled Rejection at:', promise, 'reason:', reason);
+  logger.error('🚨 Unhandled Rejection at:', promise, 'reason:', reason);
   process.exit(1);
 });
 
