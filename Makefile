@@ -3,9 +3,7 @@
 
 # Variables
 NODE_VERSION := 22
-COMPOSE_FILE := docker-compose.yml
 PROJECT_NAME := iam-fileserver
-DOCKER_IMAGE := $(PROJECT_NAME):latest
 
 # Colors for output
 GREEN := \033[0;32m
@@ -13,7 +11,7 @@ YELLOW := \033[0;33m
 RED := \033[0;31m
 NC := \033[0m # No Color
 
-.PHONY: help install dev build clean test docker-build docker-dev docker-prod docker-stop docker-clean logs health setup check-env
+.PHONY: help install dev build clean test setup check-env
 
 # Default target
 .DEFAULT_GOAL := help
@@ -67,51 +65,6 @@ build-backend: build-shared ## Build only backend
 build-frontend: build-shared ## Build only frontend
 	@echo "$(GREEN)Building frontend...$(NC)"
 	@npm run build --workspace=frontend
-
-# Docker Commands
-docker-build: ## Build Docker image
-	@echo "$(GREEN)Building Docker image...$(NC)"
-	@docker build -t $(DOCKER_IMAGE) .
-	@echo "$(GREEN)Docker image built successfully!$(NC)"
-
-docker-dev: check-env ## Start development environment with Docker
-	@echo "$(GREEN)Starting Docker development environment...$(NC)"
-	@docker-compose -f $(COMPOSE_FILE) up -d
-	@echo "$(GREEN)Development environment started!$(NC)"
-	@echo "$(YELLOW)Access: http://localhost:3001$(NC)"
-	@make logs
-
-docker-prod: check-env ## Start production environment with Docker (including Traefik)
-	@echo "$(GREEN)Starting Docker production environment...$(NC)"
-	@docker-compose --profile proxy -f $(COMPOSE_FILE) up -d
-	@echo "$(GREEN)Production environment started!$(NC)"
-	@echo "$(YELLOW)Access: https://fileserver.terhorst.io$(NC)"
-	@echo "$(YELLOW)Traefik Dashboard: http://localhost:8080$(NC)"
-
-docker-stop: ## Stop Docker containers
-	@echo "$(YELLOW)Stopping Docker containers...$(NC)"
-	@docker-compose -f $(COMPOSE_FILE) down
-	@echo "$(GREEN)Containers stopped.$(NC)"
-
-docker-restart: docker-stop docker-dev ## Restart Docker development environment
-
-docker-clean: docker-stop ## Clean Docker containers, images and volumes
-	@echo "$(YELLOW)Cleaning Docker resources...$(NC)"
-	@docker-compose -f $(COMPOSE_FILE) down -v --remove-orphans
-	@docker system prune -f
-	@docker volume prune -f
-	@echo "$(GREEN)Docker cleanup completed.$(NC)"
-
-docker-rebuild: docker-clean docker-build docker-dev ## Rebuild and restart Docker environment
-
-# Utility Commands
-logs: ## Show Docker container logs
-	@echo "$(GREEN)Showing container logs...$(NC)"
-	@docker-compose -f $(COMPOSE_FILE) logs -f --tail=100 fileserver
-
-logs-all: ## Show logs from all containers
-	@echo "$(GREEN)Showing all container logs...$(NC)"
-	@docker-compose -f $(COMPOSE_FILE) logs -f --tail=100
 
 health: ## Check application health
 	@echo "$(GREEN)Checking application health...$(NC)"
@@ -237,12 +190,6 @@ tunnel: ## Create ngrok tunnel for local development (requires ngrok)
 	@command -v ngrok >/dev/null 2>&1 || (echo "$(RED)ngrok is required but not installed$(NC)" && exit 1)
 	@ngrok http 3001
 
-# Quick shortcuts
-start: docker-dev ## Shortcut for docker-dev
-stop: docker-stop ## Shortcut for docker-stop
-restart: docker-restart ## Shortcut for docker-restart
-rebuild: docker-rebuild ## Shortcut for docker-rebuild
-
 # Information Commands
 info: ## Show project information
 	@echo "$(GREEN)IAM File Server Information$(NC)"
@@ -270,13 +217,6 @@ urls: ## Show development URLs
 	@echo "$(YELLOW)Backend API:$(NC) http://localhost:3001/api"
 	@echo "$(YELLOW)Health Check:$(NC) http://localhost:3001/api/health"
 	@echo "$(YELLOW)Production:$(NC) https://fileserver.terhorst.io"
-
-# Emergency Commands
-emergency-stop: ## Emergency stop all containers
-	@echo "$(RED)Emergency stop - killing all containers...$(NC)"
-	@docker kill $$(docker ps -q) 2>/dev/null || true
-	@docker-compose -f $(COMPOSE_FILE) down -v --remove-orphans
-	@echo "$(GREEN)Emergency stop completed.$(NC)"
 
 reset: clean docker-clean ## Complete reset (removes all data!)
 	@echo "$(RED)⚠ WARNING: This will delete ALL data including downloads and database!$(NC)"

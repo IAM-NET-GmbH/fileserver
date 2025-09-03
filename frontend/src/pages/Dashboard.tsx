@@ -16,7 +16,7 @@ export function Dashboard() {
   const { data: health, isLoading: healthLoading } = useHealth();
   const { data: downloadStats, isLoading: statsLoading } = useDownloadStats();
   const { data: providers, isLoading: providersLoading } = useProviders();
-  const { data: activities, isLoading: activitiesLoading } = useActivities(5);
+  const { data: activities } = useActivities(5);
 
   const isLoading = healthLoading || statsLoading || providersLoading;
 
@@ -232,20 +232,22 @@ export function Dashboard() {
           </div>
           <div className="p-6">
             <div className="space-y-4">
-              {recentActivities.map((activity) => {
+              {recentActivities.length > 0 ? recentActivities.map((activity) => {
                 const statusIcons = {
                   success: CheckCircle,
                   error: XCircle,
-                  info: Clock
+                  info: Clock,
+                  warning: AlertCircle
                 };
-                const StatusIcon = statusIcons[activity.status as keyof typeof statusIcons];
+                const StatusIcon = statusIcons[activity.status as keyof typeof statusIcons] || Clock;
                 
                 const statusColors = {
                   success: 'text-green-600',
                   error: 'text-red-600',
-                  info: 'text-blue-600'
+                  info: 'text-blue-600',
+                  warning: 'text-yellow-600'
                 };
-                const statusColor = statusColors[activity.status as keyof typeof statusColors];
+                const statusColor = statusColors[activity.status as keyof typeof statusColors] || 'text-blue-600';
 
                 return (
                   <div key={activity.id} className="flex items-start space-x-3">
@@ -255,12 +257,22 @@ export function Dashboard() {
                         {activity.action}
                       </p>
                       <p className="text-xs text-gray-500">
-                        vor {activity.time}
+                        {formatRelativeTime(activity.timestamp)}
                       </p>
+                      {activity.details && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          {activity.details}
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
-              })}
+              }) : (
+                <div className="text-center py-8 text-gray-500">
+                  <p className="text-sm">Keine aktuellen Aktivitäten</p>
+                  <p className="text-xs mt-1">Aktivitäten werden hier angezeigt, sobald das System verwendet wird</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

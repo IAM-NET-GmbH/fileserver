@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { DownloadFilter, SortOptions } from '@iam-fileserver/shared';
+import { DownloadFilter, SortOptions, Settings } from '@iam-fileserver/shared';
 import toast from 'react-hot-toast';
 
 // Query keys
@@ -14,23 +14,41 @@ export const queryKeys = {
   downloadStats: ['downloads', 'stats'],
   providers: ['providers'],
   provider: (id: string) => ['provider', id],
+  settings: ['settings'],
 } as const;
 
 // Health hooks
 export const useHealth = () => {
   return useQuery({
     queryKey: queryKeys.health,
-    queryFn: api.getHealth,
-    refetchInterval: 30000, // Refetch every 30 seconds
-    staleTime: 10000, // Consider data stale after 10 seconds
+    queryFn: () => {
+      console.log('🔍 useHealth: Calling api.getHealth, api instance:', api);
+      if (!api || typeof api.getHealth !== 'function') {
+        console.error('❌ api instance or getHealth method not available');
+        throw new Error('API service not properly initialized');
+      }
+      return api.getHealth();
+    },
+    refetchInterval: 20000, // Refetch every 20 seconds
+    staleTime: 5000, // Consider data stale after 5 seconds
+    refetchIntervalInBackground: false,
   });
 };
 
 export const useStatus = () => {
   return useQuery({
     queryKey: queryKeys.status,
-    queryFn: api.getStatus,
-    refetchInterval: 15000, // Refetch every 15 seconds
+    queryFn: () => {
+      console.log('🔍 useStatus: Calling api.getStatus, api instance:', api);
+      if (!api || typeof api.getStatus !== 'function') {
+        console.error('❌ api instance or getStatus method not available');
+        throw new Error('API service not properly initialized');
+      }
+      return api.getStatus();
+    },
+    refetchInterval: 10000, // Refetch every 10 seconds
+    staleTime: 5000,
+    refetchIntervalInBackground: false,
   });
 };
 
@@ -52,7 +70,7 @@ export const useDownloads = (
   return useQuery({
     queryKey: queryKeys.downloads(filter, sort, page, limit),
     queryFn: () => api.getDownloads(filter, sort, page, limit),
-    keepPreviousData: true,
+    placeholderData: (previousData) => previousData, // Ersatz für keepPreviousData
     staleTime: 30000,
   });
 };
@@ -93,8 +111,19 @@ export const useDeleteDownload = () => {
 export const useProviders = () => {
   return useQuery({
     queryKey: queryKeys.providers,
-    queryFn: api.getProviders,
-    staleTime: 60000, // Provider data doesn't change often
+    queryFn: async () => {
+      try {
+        return await api.getProviders();
+      } catch (error) {
+        console.error('Provider API Error:', error);
+        throw error;
+      }
+    },
+    staleTime: 5000, // 5 seconds - for responsive provider updates
+    refetchInterval: 10000, // Auto-refresh every 10 seconds
+    refetchIntervalInBackground: false,
+    retry: 3,
+    retryDelay: 1000,
   });
 };
 
@@ -103,6 +132,9 @@ export const useProvider = (id: string) => {
     queryKey: queryKeys.provider(id),
     queryFn: () => api.getProvider(id),
     enabled: !!id,
+    staleTime: 3000, // 3 seconds for individual provider
+    refetchInterval: 15000, // Refresh every 15 seconds
+    refetchIntervalInBackground: false,
   });
 };
 
@@ -112,8 +144,12 @@ export const useEnableProvider = () => {
   return useMutation({
     mutationFn: api.enableProvider,
     onSuccess: () => {
+      // Immediate refresh for responsive UI updates
       queryClient.invalidateQueries({ queryKey: ['providers'] });
       queryClient.invalidateQueries({ queryKey: ['health'] });
+      queryClient.invalidateQueries({ queryKey: ['providers', 'health'] });
+      // Force immediate refetch
+      queryClient.refetchQueries({ queryKey: ['providers'] });
       toast.success('Provider erfolgreich aktiviert');
     },
     onError: (error: any) => {
@@ -128,8 +164,12 @@ export const useDisableProvider = () => {
   return useMutation({
     mutationFn: api.disableProvider,
     onSuccess: () => {
+      // Immediate refresh for responsive UI updates
       queryClient.invalidateQueries({ queryKey: ['providers'] });
       queryClient.invalidateQueries({ queryKey: ['health'] });
+      queryClient.invalidateQueries({ queryKey: ['providers', 'health'] });
+      // Force immediate refetch
+      queryClient.refetchQueries({ queryKey: ['providers'] });
       toast.success('Provider erfolgreich deaktiviert');
     },
     onError: (error: any) => {
@@ -146,6 +186,9 @@ export const useCheckProvider = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['providers'] });
       queryClient.invalidateQueries({ queryKey: ['downloads'] });
+      queryClient.invalidateQueries({ queryKey: ['health'] });
+      // Force immediate refetch to show "checking" status
+      queryClient.refetchQueries({ queryKey: ['providers'] });
       toast.success('Provider-Überprüfung gestartet');
     },
     onError: (error: any) => {
@@ -170,14 +213,42 @@ export const useCheckAllProviders = () => {
   });
 };
 
+export const useCreateProvider = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ id, name, description, type, config }: { 
+      id: string; 
+      name: string; 
+      description?: string;
+      type: string;
+      config: any; 
+    }) => api.createProvider(id, name, description, type, config),
+    onSuccess: (_, variables) => {
+      // Invalidate and refetch providers
+      queryClient.invalidateQueries({ queryKey: ['providers'] });
+      queryClient.invalidateQueries({ queryKey: ['health'] });
+      queryClient.refetchQueries({ queryKey: ['providers'] });
+      toast.success(`Provider "${variables.name}" erfolgreich erstellt`);
+    },
+    onError: (error: any) => {
+      const errorMessage = error.response?.data?.error || error.message || 'Fehler beim Erstellen des Providers';
+      toast.error(errorMessage);
+    }
+  });
+};
+
 export const useUpdateProviderConfig = () => {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: ({ id, config }: { id: string; config: any }) => 
-      api.updateProviderConfig(id, config),
+    mutationFn: ({ id, config, name, description }: { id: string; config: any; name?: string; description?: string }) => 
+      api.updateProviderConfig(id, config, name, description),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['providers'] });
+      queryClient.invalidateQueries({ queryKey: ['health'] });
+      // Force immediate refetch to show config changes
+      queryClient.refetchQueries({ queryKey: ['providers'] });
       toast.success('Provider-Konfiguration erfolgreich aktualisiert');
     },
     onError: (error: any) => {
@@ -230,6 +301,45 @@ export const useClearActivities = () => {
     },
     onError: (error: any) => {
       toast.error(`Fehler beim Löschen: ${error.message}`);
+    },
+  });
+};
+
+// Settings hooks
+export const useSettings = () => {
+  return useQuery({
+    queryKey: queryKeys.settings,
+    queryFn: api.getSettings,
+    staleTime: 300000, // Settings don't change often, cache for 5 minutes
+  });
+};
+
+export const useUpdateSettings = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (settings: Settings) => api.updateSettings(settings),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings });
+      toast.success('Einstellungen erfolgreich gespeichert');
+    },
+    onError: (error: any) => {
+      toast.error(`Fehler beim Speichern: ${error.message}`);
+    },
+  });
+};
+
+export const useResetSettings = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: api.resetSettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings });
+      toast.success('Einstellungen wurden zurückgesetzt');
+    },
+    onError: (error: any) => {
+      toast.error(`Fehler beim Zurücksetzen: ${error.message}`);
     },
   });
 };

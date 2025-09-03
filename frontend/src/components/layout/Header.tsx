@@ -1,7 +1,10 @@
-import { Menu, Bell, Search, RefreshCw } from 'lucide-react';
+import { Menu, Bell, Search, RefreshCw, User, LogOut, Settings } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useStatus, useCheckAllProviders } from '@/hooks/useApi';
-import { formatRelativeTime, cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { cn } from '@/lib/utils';
+import { NotificationDropdown, NotificationBadge } from '@/components/NotificationDropdown';
 
 interface HeaderProps {
   onMenuClick?: () => void;
@@ -9,15 +12,18 @@ interface HeaderProps {
 
 export function Header({ onMenuClick }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const { data: status } = useStatus();
   const checkAllProviders = useCheckAllProviders();
+  const { user, logout } = useAuth();
 
   const handleRefresh = () => {
     checkAllProviders.mutate();
   };
 
   return (
-    <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 shadow-sm">
+    <header className="bg-white border-b border-gray-200 h-12 flex items-center justify-between px-6 shadow-sm">
       {/* Left section */}
       <div className="flex items-center space-x-4">
         {/* Mobile menu button */}
@@ -74,20 +80,66 @@ export function Header({ onMenuClick }: HeaderProps) {
         </button>
 
         {/* Notifications */}
-        <button className="p-2 rounded-lg hover:bg-gray-100 focus-ring relative">
-          <Bell className="w-4 h-4 text-gray-600" />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-        </button>
+        <div className="relative">
+          <button 
+            onClick={() => setShowNotifications(!showNotifications)}
+            className="p-2 rounded-lg hover:bg-gray-100 focus-ring relative"
+            title="Benachrichtigungen"
+          >
+            <Bell className="w-4 h-4 text-gray-600" />
+            <NotificationBadge />
+          </button>
+          <NotificationDropdown 
+            isOpen={showNotifications}
+            onClose={() => setShowNotifications(false)}
+          />
+        </div>
 
         {/* User menu */}
         <div className="flex items-center space-x-3">
           <div className="hidden sm:block text-right">
-            <div className="text-sm font-medium text-gray-900">IAM File Server</div>
+            <div className="text-sm font-medium text-gray-900">{user?.email || 'IAM File Server'}</div>
             <div className="text-xs text-gray-500">fileserver.terhorst.io</div>
           </div>
           
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white font-medium text-sm">
-            FS
+          <div className="relative">
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white font-medium text-sm hover:from-primary-600 hover:to-primary-700 transition-colors focus-ring"
+            >
+              <User className="w-4 h-4" />
+            </button>
+
+            {/* User dropdown menu */}
+            {showUserMenu && (
+              <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                <div className="p-4 border-b border-gray-100">
+                  <p className="text-sm font-medium text-gray-900">{user?.email}</p>
+                  <p className="text-xs text-gray-500 capitalize">{user?.role}</p>
+                </div>
+                
+                <div className="py-2">
+                  <Link
+                    to="/profile"
+                    onClick={() => setShowUserMenu(false)}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                  >
+                    <Settings className="w-4 h-4" />
+                    <span>Mein Profil</span>
+                  </Link>
+                  <button
+                    onClick={() => {
+                      logout();
+                      setShowUserMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Abmelden</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

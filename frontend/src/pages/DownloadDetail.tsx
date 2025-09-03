@@ -9,10 +9,11 @@ import {
   FileText,
   ExternalLink,
   Copy,
-  Trash2
+  Trash2,
+  Terminal
 } from 'lucide-react';
 import { useDownload, useDeleteDownload } from '@/hooks/useApi';
-import { formatFileSize, formatDate, copyToClipboard, cn } from '@/lib/utils';
+import { formatFileSize, formatDate, copyToClipboard } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 export function DownloadDetail() {
@@ -27,6 +28,25 @@ export function DownloadDetail() {
       toast.success('Download-URL in Zwischenablage kopiert');
     } else {
       toast.error('Fehler beim Kopieren der URL');
+    }
+  };
+
+  const handleDirectLink = async () => {
+    try {
+      const response = await fetch(`/api/direct/${id}/token`);
+      const data = await response.json();
+      if (data.success) {
+        const success = await copyToClipboard(data.data.directUrl);
+        if (success) {
+          toast.success('Direct-Link in Zwischenablage kopiert (24h gültig)');
+        } else {
+          toast.error('Fehler beim Kopieren des Links');
+        }
+      } else {
+        toast.error('Fehler beim Erstellen des Direct-Links');
+      }
+    } catch (error) {
+      toast.error('Fehler beim Erstellen des Direct-Links');
     }
   };
 
@@ -147,6 +167,13 @@ export function DownloadDetail() {
                   >
                     <Copy className="w-4 h-4" />
                     <span>URL kopieren</span>
+                  </button>
+                  <button
+                    onClick={handleDirectLink}
+                    className="btn-secondary flex items-center space-x-2"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>Direct-Link</span>
                   </button>
                   <button
                     onClick={handleDelete}
@@ -319,6 +346,80 @@ export function DownloadDetail() {
           </div>
 
           {/* File Path Info */}
+          {/* CLI Commands */}
+          <div className="card">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900 flex items-center space-x-2">
+                <Terminal className="w-5 h-5" />
+                <span>CLI-Befehle</span>
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Direkte Download-Links für wget, curl und andere Tools
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">curl:</p>
+                <div className="flex items-center space-x-2 bg-gray-100 p-3 rounded">
+                  <code className="text-sm flex-1 text-gray-800 break-all">
+                    curl -L -O "{window.location.origin}/api/direct/[TOKEN]"
+                  </code>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const response = await fetch(`/api/direct/${id}/token`);
+                        const data = await response.json();
+                        if (data.success) {
+                          const curlCommand = `curl -L -O "${data.data.directUrl}"`;
+                          await copyToClipboard(curlCommand);
+                          toast.success('curl-Befehl kopiert!');
+                        }
+                      } catch (error) {
+                        toast.error('Fehler beim Erstellen des Befehls');
+                      }
+                    }}
+                    className="btn-ghost btn-sm flex items-center space-x-1"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span className="sr-only">Kopieren</span>
+                  </button>
+                </div>
+              </div>
+              
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">wget:</p>
+                <div className="flex items-center space-x-2 bg-gray-100 p-3 rounded">
+                  <code className="text-sm flex-1 text-gray-800 break-all">
+                    wget "{window.location.origin}/api/direct/[TOKEN]"
+                  </code>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const response = await fetch(`/api/direct/${id}/token`);
+                        const data = await response.json();
+                        if (data.success) {
+                          const wgetCommand = `wget "${data.data.directUrl}"`;
+                          await copyToClipboard(wgetCommand);
+                          toast.success('wget-Befehl kopiert!');
+                        }
+                      } catch (error) {
+                        toast.error('Fehler beim Erstellen des Befehls');
+                      }
+                    }}
+                    className="btn-ghost btn-sm flex items-center space-x-1"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span className="sr-only">Kopieren</span>
+                  </button>
+                </div>
+              </div>
+              
+              <div className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded p-3">
+                <strong>Hinweis:</strong> Direct-Links sind 24 Stunden gültig. Neue Links können jederzeit über die "Direct-Link" Schaltfläche generiert werden.
+              </div>
+            </div>
+          </div>
+
           <div className="card">
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-medium text-gray-900">Speicherort</h3>

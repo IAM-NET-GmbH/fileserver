@@ -3,15 +3,42 @@ import { ProviderService } from '../services/ProviderService';
 import { ApiResponse } from '@iam-fileserver/shared';
 
 const router = Router();
-let providerService: ProviderService;
+let providerService: ProviderService | null = null;
+let isInitializing = false;
 
-// Initialize provider service
-const initializeProviderService = async () => {
-  if (!providerService) {
+// Initialize provider service with singleton pattern
+const initializeProviderService = async (): Promise<ProviderService> => {
+  // If already initialized, return existing instance
+  if (providerService) {
+    return providerService;
+  }
+  
+  // If currently initializing, wait for it to complete
+  if (isInitializing) {
+    console.log('⏳ ProviderService initialization already in progress, waiting...');
+    // Wait for initialization to complete
+    while (isInitializing) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    if (providerService) {
+      return providerService;
+    }
+  }
+  
+  try {
+    isInitializing = true;
+    console.log('🚀 Initializing ProviderService for the first time...');
     providerService = new ProviderService();
     await providerService.initialize();
+    console.log('✅ ProviderService initialized successfully');
+    return providerService;
+  } catch (error) {
+    console.error('❌ Failed to initialize ProviderService:', error);
+    providerService = null; // Reset on error
+    throw error;
+  } finally {
+    isInitializing = false;
   }
-  return providerService;
 };
 
 // GET /api/providers - Get all providers
@@ -59,6 +86,41 @@ router.get('/:id', async (req: Request, res: Response) => {
       timestamp: new Date().toISOString()
     };
 
+    res.json(response);
+  } catch (error) {
+    const response: ApiResponse = {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    };
+    res.status(500).json(response);
+  }
+});
+
+// POST /api/providers - Create new provider
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    const { id, name, description, type, config } = req.body;
+    
+    if (!id || !name || !type || !config) {
+      const response: ApiResponse = {
+        success: false,
+        error: 'Missing required fields: id, name, type, config',
+        timestamp: new Date().toISOString()
+      };
+      return res.status(400).json(response);
+    }
+    
+    const service = await initializeProviderService();
+    await service.createNewProvider({ id, name, description, type, config });
+    
+    const response: ApiResponse = {
+      success: true,
+      message: 'Provider created successfully',
+      data: { id },
+      timestamp: new Date().toISOString()
+    };
+    
     res.json(response);
   } catch (error) {
     const response: ApiResponse = {
@@ -150,7 +212,7 @@ router.post('/:id/check', async (req: Request, res: Response) => {
 router.put('/:id/config', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { config } = req.body;
+    const { config, name, description } = req.body;
 
     if (!config) {
       const response: ApiResponse = {
@@ -162,11 +224,39 @@ router.put('/:id/config', async (req: Request, res: Response) => {
     }
 
     const service = await initializeProviderService();
-    await service.updateProviderConfig(id, config);
+    await service.updateProviderConfig(id, config, name, description);
 
     const response: ApiResponse = {
       success: true,
       message: `Configuration updated for provider ${id}`,
+      timestamp: new Date().toISOString()
+    };
+
+    res.json(response);
+  } catch (error) {
+    const response: ApiResponse = {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    };
+    res.status(500).json(response);
+  }
+});
+
+// POST /api/providers/:id/rescan - Rescan existing files for a provider
+router.post('/:id/rescan', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const service = await initializeProviderService();
+    
+    // Run rescan in background
+    service.rescanProviderFiles(id).catch(error => {
+      console.error(`Background rescan failed for provider ${id}:`, error);
+    });
+
+    const response: ApiResponse = {
+      success: true,
+      message: `File rescan initiated for provider ${id}`,
       timestamp: new Date().toISOString()
     };
 

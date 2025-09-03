@@ -4,16 +4,18 @@ import {
   Search,
   Filter,
   Download,
-  Calendar,
   FileText,
   Trash2,
   ExternalLink,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  List,
+  TreePine
 } from 'lucide-react';
 import { useDownloads, useDeleteDownload } from '@/hooks/useApi';
 import { DownloadFilter, SortOptions } from '@iam-fileserver/shared';
-import { formatFileSize, formatDate, formatRelativeTime, cn } from '@/lib/utils';
+import { formatFileSize, formatRelativeTime, cn } from '@/lib/utils';
+import { FolderTreeView } from '@/components/FolderTreeView';
 
 export function Downloads() {
   const [currentPage, setCurrentPage] = useState(1);
@@ -23,6 +25,7 @@ export function Downloads() {
   const [sortField, setSortField] = useState<string>('downloadedAt');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'tree'>('tree');
 
   const filter: DownloadFilter = {
     ...(searchTerm && { search: searchTerm }),
@@ -35,7 +38,7 @@ export function Downloads() {
     direction: sortDirection,
   };
 
-  const { data: downloads, isLoading, error } = useDownloads(filter, sort, currentPage, 20);
+  const { data: downloads = { items: [], total: 0, pages: 0 }, isLoading, error } = useDownloads(filter, sort, currentPage, 20);
   const deleteDownload = useDeleteDownload();
 
   const handleDelete = (id: string) => {
@@ -44,33 +47,59 @@ export function Downloads() {
     }
   };
 
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('desc');
-    }
-  };
+
 
   const categories = Array.from(
-    new Set(downloads?.items.map(d => d.category).filter(Boolean))
+    new Set(downloads.items.map((d: any) => d.category).filter(Boolean))
   ).sort();
 
   const providers = Array.from(
-    new Set(downloads?.items.map(d => d.providerId).filter(Boolean))
+    new Set(downloads.items.map((d: any) => d.providerId).filter(Boolean))
   ).sort();
 
   if (error) {
     return (
-      <div className="text-center py-12">
-        <div className="text-red-600 mb-4">
-          <FileText className="w-12 h-12 mx-auto" />
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Downloads</h1>
+          <p className="mt-1 text-gray-600">Download-Übersicht und Verwaltung</p>
         </div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">
-          Fehler beim Laden der Downloads
-        </h2>
-        <p className="text-gray-600">{error.message}</p>
+        
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <div className="text-red-500">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h4 className="text-sm font-medium text-red-800">
+                Backend nicht erreichbar
+              </h4>
+              <p className="text-xs text-red-600 mt-1">
+                {error.message}
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-2 text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200 transition-colors"
+              >
+                Erneut versuchen
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <div className="text-center py-8">
+          <div className="text-red-600 mb-4">
+            <FileText className="w-12 h-12 mx-auto" />
+          </div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            Downloads können nicht geladen werden
+          </h2>
+          <p className="text-gray-600">
+            Bitte überprüfen Sie die Backend-Verbindung
+          </p>
+        </div>
       </div>
     );
   }
@@ -102,6 +131,36 @@ export function Downloads() {
                 className="input pl-10"
               />
             </div>
+          </div>
+
+          {/* View Mode Toggle */}
+          <div className="flex border border-gray-300 rounded-lg overflow-hidden">
+            <button
+              onClick={() => setViewMode('tree')}
+              className={cn(
+                "px-3 py-2 text-sm font-medium flex items-center space-x-1",
+                viewMode === 'tree'
+                  ? "bg-primary-600 text-white"
+                  : "bg-white text-gray-700 hover:bg-gray-50"
+              )}
+              title="Ordner-Ansicht"
+            >
+              <TreePine className="w-4 h-4" />
+              <span>Ordner</span>
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={cn(
+                "px-3 py-2 text-sm font-medium flex items-center space-x-1 border-l border-gray-300",
+                viewMode === 'list'
+                  ? "bg-primary-600 text-white"
+                  : "bg-white text-gray-700 hover:bg-gray-50"
+              )}
+              title="Listen-Ansicht"
+            >
+              <List className="w-4 h-4" />
+              <span>Liste</span>
+            </button>
           </div>
 
           {/* Filter Toggle */}
@@ -198,103 +257,116 @@ export function Downloads() {
             </div>
           ))}
         </div>
-      ) : downloads && downloads.items.length > 0 ? (
-        <div className="space-y-4">
-          {downloads.items.map((download) => (
-            <div key={download.id} className="card hover:shadow-medium transition-shadow">
-              <div className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4 flex-1 min-w-0">
-                    {/* File Icon */}
-                    <div className="flex-shrink-0">
-                      <div className="w-12 h-12 bg-primary-100 rounded-lg flex items-center justify-center">
-                        <FileText className="w-6 h-6 text-primary-600" />
-                      </div>
-                    </div>
+      ) : downloads.items.length > 0 ? (
+        <div>
+          {viewMode === 'tree' ? (
+            <div className="card p-4">
+              <FolderTreeView
+                downloads={downloads.items}
+                searchTerm={searchTerm}
+                selectedCategory={selectedCategory}
+                selectedProvider={selectedProvider}
+              />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {downloads.items.map((download: any) => (
+                <div key={download.id} className="card hover:shadow-medium transition-shadow">
+                  <div className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-4 flex-1 min-w-0">
+                        {/* File Icon */}
+                        <div className="flex-shrink-0">
+                          <div className="w-12 h-12 bg-primary-100 rounded-lg flex items-center justify-center">
+                            <FileText className="w-6 h-6 text-primary-600" />
+                          </div>
+                        </div>
 
-                    {/* File Details */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2">
-                        <Link
-                          to={`/downloads/${download.id}`}
-                          className="text-lg font-medium text-gray-900 hover:text-primary-600 truncate"
-                        >
-                          {download.title}
-                        </Link>
-                        {download.version !== 'unknown' && (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                            v{download.version}
-                          </span>
-                        )}
-                      </div>
-                      
-                      <div className="mt-1 flex items-center space-x-4 text-sm text-gray-500">
-                        <span>{formatFileSize(download.fileSize)}</span>
-                        <span>•</span>
-                        <span>{download.category}</span>
-                        <span>•</span>
-                        <span>{download.providerId}</span>
-                        <span>•</span>
-                        <span>{formatRelativeTime(download.downloadedAt)}</span>
-                      </div>
-
-                      {download.description && (
-                        <p className="mt-2 text-sm text-gray-600 line-clamp-2">
-                          {download.description}
-                        </p>
-                      )}
-
-                      {/* Tags */}
-                      {download.tags && download.tags.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {download.tags.slice(0, 3).map((tag, index) => (
-                            <span
-                              key={index}
-                              className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800"
+                        {/* File Details */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <Link
+                              to={`/downloads/${download.id}`}
+                              className="text-lg font-medium text-gray-900 hover:text-primary-600 truncate"
                             >
-                              {tag}
-                            </span>
-                          ))}
-                          {download.tags.length > 3 && (
-                            <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-800">
-                              +{download.tags.length - 3} weitere
-                            </span>
+                              {download.title}
+                            </Link>
+                            {download.version !== 'unknown' && (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                v{download.version}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="mt-1 flex items-center space-x-4 text-sm text-gray-500">
+                            <span>{formatFileSize(download.fileSize)}</span>
+                            <span>•</span>
+                            <span>{download.category}</span>
+                            <span>•</span>
+                            <span>{download.providerId}</span>
+                            <span>•</span>
+                            <span>{formatRelativeTime(download.downloadedAt)}</span>
+                          </div>
+
+                          {download.description && (
+                            <p className="mt-2 text-sm text-gray-600 line-clamp-2">
+                              {download.description}
+                            </p>
+                          )}
+
+                          {/* Tags */}
+                          {download.tags && download.tags.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {download.tags?.slice(0, 3).map((tag: string, index: number) => (
+                                <span
+                                  key={index}
+                                  className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                              {download.tags.length > 3 && (
+                                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-800">
+                                  +{download.tags.length - 3} weitere
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
-                      )}
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center space-x-2">
+                        <a
+                          href={`/api/downloads/${download.id}/download`}
+                          className="btn-primary btn-sm flex items-center space-x-1"
+                          download
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>Download</span>
+                        </a>
+                        
+                        <Link
+                          to={`/downloads/${download.id}`}
+                          className="btn-secondary btn-sm"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </Link>
+
+                        <button
+                          onClick={() => handleDelete(download.id)}
+                          disabled={deleteDownload.isPending}
+                          className="btn-ghost btn-sm text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center space-x-2">
-                    <a
-                      href={`/api/downloads/${download.id}/download`}
-                      className="btn-primary btn-sm flex items-center space-x-1"
-                      download
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Download</span>
-                    </a>
-                    
-                    <Link
-                      to={`/downloads/${download.id}`}
-                      className="btn-secondary btn-sm"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </Link>
-
-                    <button
-                      onClick={() => handleDelete(download.id)}
-                      disabled={deleteDownload.isPending}
-                      className="btn-ghost btn-sm text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
                 </div>
-              </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       ) : (
         <div className="text-center py-12">
@@ -310,8 +382,8 @@ export function Downloads() {
         </div>
       )}
 
-      {/* Pagination */}
-      {downloads && downloads.pages > 1 && (
+      {/* Pagination - Only show in list view */}
+      {viewMode === 'list' && downloads.pages > 1 && (
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-700">
             Zeige {((currentPage - 1) * 20) + 1} bis {Math.min(currentPage * 20, downloads.total)} von {downloads.total} Downloads

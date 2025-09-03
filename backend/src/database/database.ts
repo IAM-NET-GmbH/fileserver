@@ -40,9 +40,72 @@ export class Database {
 
   private async runMigrations(): Promise<void> {
     // Create tables if they don't exist
+    await this.createUsersTable();
+    await this.createApiTokensTable();
+    await this.createNotificationsTable();
     await this.createProvidersTable();
     await this.createDownloadsTable();
     await this.createCategoriesTable();
+  }
+
+  private async createUsersTable(): Promise<void> {
+    const hasTable = await this.knex.schema.hasTable('users');
+    if (!hasTable) {
+      await this.knex.schema.createTable('users', (table) => {
+        table.string('id').primary();
+        table.string('email').notNullable().unique();
+        table.string('password_hash').notNullable();
+        table.string('name').notNullable();
+        table.enum('role', ['user', 'admin']).notNullable().defaultTo('user');
+        table.boolean('is_active').defaultTo(true);
+        table.timestamps(true, true);
+      });
+    } else {
+      // Remove api_token column if it exists (migration to central token system)
+      const hasApiTokenColumn = await this.knex.schema.hasColumn('users', 'api_token');
+      if (hasApiTokenColumn) {
+        await this.knex.schema.table('users', (table) => {
+          table.dropColumn('api_token');
+        });
+      }
+    }
+  }
+
+  private async createApiTokensTable(): Promise<void> {
+    const hasTable = await this.knex.schema.hasTable('api_tokens');
+    if (!hasTable) {
+      await this.knex.schema.createTable('api_tokens', (table) => {
+        table.string('id').primary();
+        table.string('name').notNullable(); // Token description/name
+        table.string('token').notNullable().unique(); // The actual token
+        table.text('description').nullable(); // Optional longer description
+        table.string('created_by').references('id').inTable('users').onDelete('CASCADE');
+        table.boolean('is_active').defaultTo(true);
+        table.datetime('last_used_at').nullable();
+        table.datetime('expires_at').nullable(); // Optional expiration
+        table.timestamps(true, true);
+        table.index(['token', 'is_active']);
+      });
+    }
+  }
+
+  private async createNotificationsTable(): Promise<void> {
+    const hasTable = await this.knex.schema.hasTable('notifications');
+    if (!hasTable) {
+      await this.knex.schema.createTable('notifications', (table) => {
+        table.string('id').primary();
+        table.string('user_id').references('id').inTable('users').onDelete('CASCADE');
+        table.enum('type', ['info', 'success', 'warning', 'error', 'system']).notNullable();
+        table.string('title').notNullable();
+        table.text('message').notNullable();
+        table.string('action_url').nullable();
+        table.boolean('is_read').defaultTo(false);
+        table.timestamp('created_at').defaultTo(this.knex.fn.now());
+        table.timestamp('read_at').nullable();
+        table.index(['user_id', 'is_read']);
+        table.index(['user_id', 'created_at']);
+      });
+    }
   }
 
   private async createProvidersTable(): Promise<void> {

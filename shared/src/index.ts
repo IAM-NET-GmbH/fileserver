@@ -24,7 +24,7 @@ export const sanitizeFileName = (fileName: string): string => {
   return fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
 };
 
-export const validateFileExtension = (fileName: string, allowedExtensions: string[]): boolean => {
-  const ext = fileName.toLowerCase().split('.').pop();
-  return allowedExtensions.includes(`.${ext}`);
+export const validateFileExtension = (fileName: string, allowedExtensions?: string[]): boolean => {
+  // All file types are now allowed - no restrictions
+  return true;
 };

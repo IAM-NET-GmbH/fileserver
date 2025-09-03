@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -22,6 +23,7 @@ import {
   useDownloads
 } from '@/hooks/useApi';
 import { formatProviderStatus, getStatusColor, formatRelativeTime, formatDate, cn } from '@/lib/utils';
+import { ProviderConfig } from '@/components/ProviderConfig';
 
 export function ProviderDetail() {
   const { id } = useParams<{ id: string }>();
@@ -46,6 +48,8 @@ export function ProviderDetail() {
     if (!provider) return;
     checkProvider.mutate(provider.id);
   };
+
+  const [showConfig, setShowConfig] = useState(false);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -143,6 +147,14 @@ export function ProviderDetail() {
           >
             {provider.enabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             <span>{provider.enabled ? 'Deaktivieren' : 'Aktivieren'}</span>
+          </button>
+
+          <button
+            onClick={() => setShowConfig(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg font-medium transition-colors"
+          >
+            <Settings className="w-4 h-4" />
+            <span>Konfigurieren</span>
           </button>
         </div>
       </div>
@@ -390,6 +402,14 @@ export function ProviderDetail() {
           </div>
         </div>
       </div>
+
+      {/* Provider Configuration Modal */}
+      {showConfig && (
+        <ProviderConfig
+          provider={provider}
+          onClose={() => setShowConfig(false)}
+        />
+      )}
     </div>
   );
 }

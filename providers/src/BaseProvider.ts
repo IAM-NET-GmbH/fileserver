@@ -41,6 +41,11 @@ export abstract class BaseProvider {
   abstract checkForUpdates(): Promise<ProviderDownload[]>;
   abstract downloadFile(download: ProviderDownload, targetPath: string): Promise<boolean>;
   abstract cleanup(): Promise<void>;
+  
+  // Optional method to scan existing files - providers can override
+  async scanExistingFiles(): Promise<ProviderDownload[]> {
+    return [];
+  }
 
   // Common methods
   getId(): string {

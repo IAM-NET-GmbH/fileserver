@@ -33,15 +33,7 @@ router.get('/', async (req: Request, res: Response) => {
     // Get system uptime
     const uptime = process.uptime();
 
-    // Check database connection
-    let databaseConnected = true;
-    let itemCount = 0;
-    try {
-      const stats = await downloadRepository.getStats();
-      itemCount = stats.totalDownloads;
-    } catch (error) {
-      databaseConnected = false;
-    }
+
 
     // Get providers status
     const providers = await providerService.getAllProviders();
@@ -60,9 +52,7 @@ router.get('/', async (req: Request, res: Response) => {
     // Determine overall system status
     let systemStatus: 'healthy' | 'unhealthy' | 'degraded' = 'healthy';
     
-    if (!databaseConnected) {
-      systemStatus = 'unhealthy';
-    } else if (providers.some(p => p.enabled && p.status === 'error')) {
+    if (providers.some(p => p.enabled && p.status === 'error')) {
       systemStatus = 'degraded';
     }
 
@@ -71,10 +61,6 @@ router.get('/', async (req: Request, res: Response) => {
       version: process.env.npm_package_version || '1.0.0',
       uptime,
       providers: providerHealthChecks,
-      database: {
-        connected: databaseConnected,
-        itemCount
-      },
       disk: {
         totalSpace: diskUsage.total,
         freeSpace: diskUsage.free,

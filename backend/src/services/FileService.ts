@@ -1,8 +1,12 @@
 import fs from 'fs-extra';
 import path from 'path';
 import crypto from 'crypto';
+import { promisify } from 'util';
+import { exec } from 'child_process';
 import { DownloadItem, sanitizeFileName, formatFileSize } from '@iam-fileserver/shared';
 import { DownloadRepository } from '../repositories/DownloadRepository';
+
+const execAsync = promisify(exec);
 
 export class FileService {
   private downloadRepository: DownloadRepository;
@@ -10,7 +14,7 @@ export class FileService {
 
   constructor() {
     this.downloadRepository = new DownloadRepository();
-    this.downloadPath = process.env.DOWNLOAD_PATH || './downloads';
+    this.downloadPath = process.env.DOWNLOAD_PATH || '/mnt/storagebox';
     this.ensureDownloadDirectory();
   }
 
@@ -37,7 +41,9 @@ export class FileService {
       }
 
       const stats = await fs.stat(fullPath);
-      const checksum = await this.calculateChecksum(fullPath);
+      
+      // No checksum calculation - use file size and name for identification
+      const checksum = `${path.basename(filePath)}_${stats.size}`;
 
       return {
         exists: true,
@@ -48,6 +54,14 @@ export class FileService {
     } catch (error) {
       return { exists: false };
     }
+  }
+
+  private formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
   async calculateChecksum(filePath: string): Promise<string> {
@@ -110,35 +124,7 @@ export class FileService {
     return fileName;
   }
 
-  async cleanupOldFiles(retentionDays: number): Promise<{
-    deletedFiles: number;
-    freedSpace: number;
-  }> {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-    const allDownloads = await this.downloadRepository.findAll();
-    let deletedFiles = 0;
-    let freedSpace = 0;
-
-    for (const download of allDownloads.items) {
-      if (download.downloadedAt < cutoffDate) {
-        try {
-          const fileStats = await this.getFileStats(download.filePath);
-          if (fileStats.exists) {
-            await this.deleteFile(download.filePath);
-            freedSpace += fileStats.size || 0;
-            deletedFiles++;
-          }
-          await this.downloadRepository.delete(download.id);
-        } catch (error) {
-          console.error(`Failed to cleanup file ${download.filePath}:`, error);
-        }
-      }
-    }
-
-    return { deletedFiles, freedSpace };
-  }
 
   async getDiskUsage(): Promise<{
     total: number;
@@ -146,22 +132,46 @@ export class FileService {
     free: number;
   }> {
     try {
-      // Simple implementation using downloads size
-      // In a real implementation, you might want to use statvfs or du command
-      const downloadsStats = await this.getDownloadsSize();
-      return {
-        total: 1024 * 1024 * 1024 * 100, // Assume 100GB total (mock value)
-        used: downloadsStats,
-        free: (1024 * 1024 * 1024 * 100) - downloadsStats
-      };
+      // Get disk usage for the actual download path (SMB mount)
+      const { stdout } = await execAsync(`df -B1 "${this.downloadPath}"`);
+      const lines = stdout.trim().split('\n');
+      
+      if (lines.length >= 2) {
+        const dataLine = lines[1];
+        const columns = dataLine.split(/\s+/);
+        
+        if (columns.length >= 4) {
+          const total = parseInt(columns[1], 10) || 0;
+          const used = parseInt(columns[2], 10) || 0;
+          const available = parseInt(columns[3], 10) || 0;
+          
+          return {
+            total,
+            used,
+            free: available
+          };
+        }
+      }
+      
+      throw new Error('Unable to parse df output');
     } catch (error) {
-      // Fallback
-      const downloadsStats = await this.getDownloadsSize();
-      return {
-        total: 0,
-        used: downloadsStats,
-        free: 0
-      };
+      console.warn(`Could not get disk usage for ${this.downloadPath}:`, error);
+      
+      // Fallback: Try to get at least the used size from downloaded files
+      try {
+        const downloadsStats = await this.getDownloadsSize();
+        return {
+          total: 0, // Unknown total space
+          used: downloadsStats,
+          free: 0   // Unknown free space
+        };
+      } catch (fallbackError) {
+        return {
+          total: 0,
+          used: 0,
+          free: 0
+        };
+      }
     }
   }
 

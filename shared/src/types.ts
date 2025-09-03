@@ -61,10 +61,6 @@ export interface HealthCheck {
   version: string;
   uptime: number;
   providers: ProviderHealthCheck[];
-  database: {
-    connected: boolean;
-    itemCount: number;
-  };
   disk: {
     totalSpace: number;
     freeSpace: number;
@@ -107,11 +103,11 @@ export interface SortOptions {
 // System Configuration
 export interface SystemConfig {
   downloadPath: string;
-  checkInterval: number; // in hours
-  retentionDays: number;
-  maxFileSize: number; // in bytes
-  allowedFileTypes: string[];
   providers: Provider[];
+}
+
+// Settings Types
+export interface Settings {
 }
 
 // Statistics

@@ -11,6 +11,12 @@ import downloadsRouter from './routes/downloads';
 import providersRouter from './routes/providers';
 import healthRouter from './routes/health';
 import activitiesRouter from './routes/activities';
+import authRouter from './routes/auth';
+import usersRouter from './routes/users';
+import apiTokensRouter from './routes/apiTokens';
+import notificationsRouter from './routes/notifications';
+import directRouter from './routes/direct';
+import settingsRouter from './routes/settings';
 
 // Services
 import { Database } from './database/database';
@@ -66,10 +72,16 @@ export const createApp = async () => {
   app.use(express.static(frontendPath));
 
   // API Routes
+  app.use('/api/auth', authRouter);
+  app.use('/api/users', usersRouter);
+  app.use('/api/api-tokens', apiTokensRouter);
+  app.use('/api/notifications', notificationsRouter);
   app.use('/api/downloads', downloadsRouter);
   app.use('/api/providers', providersRouter);
   app.use('/api/health', healthRouter);
   app.use('/api/activities', activitiesRouter);
+  app.use('/api/direct', directRouter);
+  app.use('/api/settings', settingsRouter);
 
   // API Info endpoint
   app.get('/api', (req, res) => {

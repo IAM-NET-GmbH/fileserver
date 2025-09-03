@@ -13,6 +13,7 @@ interface BMWConfig {
   istaPUrl: string;
   istaNextUrl: string;
   headless: boolean;
+  downloadPath: string; // Where to save downloaded files
 }
 
 export class BMWProvider extends BaseProvider {
@@ -44,6 +45,12 @@ export class BMWProvider extends BaseProvider {
 
   async initialize(): Promise<void> {
     this.logger.info('🚀 BMW Provider wird initialisiert...');
+    
+    const config = this.getBMWConfig();
+    
+    // Ensure download directory exists
+    await fs.ensureDir(config.downloadPath);
+    
     await this.launchBrowser();
     this.updateStatus(ProviderStatus.ACTIVE);
   }
@@ -53,9 +60,33 @@ export class BMWProvider extends BaseProvider {
     
     const config = this.getBMWConfig();
     
+    // Auto-detect display availability for SSH environments
+    const hasDisplay = process.env.DISPLAY !== undefined;
+    const isSSH = process.env.SSH_CLIENT !== undefined || process.env.SSH_TTY !== undefined;
+    
+    let shouldUseHeadless = config.headless;
+    
+    // Auto-switch to headless if no display is available
+    if (!config.headless && !hasDisplay && isSSH) {
+      this.logger.warn('⚠️ Kein Display verfügbar (SSH ohne X11). Wechsle zu headless: true');
+      this.logger.info('💡 Tipp: Verwenden Sie "xvfb-run -a npm run dev:backend" für virtuellen Display');
+      shouldUseHeadless = true;
+    }
+    
+    this.logger.info(`🖥️ Browser-Modus: ${shouldUseHeadless ? 'headless' : 'headed'} (Display: ${hasDisplay ? 'verfügbar' : 'nicht verfügbar'})`);
+    
     this.browser = await chromium.launch({
-      headless: config.headless,
-      args: ['--disable-blink-features=AutomationControlled']
+      headless: shouldUseHeadless,
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+      ]
     });
 
     this.context = await this.browser.newContext({
@@ -82,6 +113,8 @@ export class BMWProvider extends BaseProvider {
         }
       });
     }
+    
+    this.logger.info('✅ Browser erfolgreich gestartet');
   }
 
   async checkForUpdates(): Promise<ProviderDownload[]> {
@@ -115,6 +148,7 @@ export class BMWProvider extends BaseProvider {
 
   private async login(): Promise<boolean> {
     if (this.isLoggedIn || !this.page) {
+      this.logger.info('✅ Bereits eingeloggt');
       return this.isLoggedIn;
     }
 
@@ -123,29 +157,47 @@ export class BMWProvider extends BaseProvider {
     try {
       const config = this.getBMWConfig();
       
+      // Navigate to auth page with longer timeout
+      this.logger.debug('Navigiere zur Anmelde-Seite...');
       await this.page.goto(config.authUrl, {
         waitUntil: 'networkidle',
-        timeout: 30000
+        timeout: 60000
       });
 
+      // Wait for login form with longer timeout
+      this.logger.debug('Warte auf Login-Formular...');
       await this.page.waitForSelector('input[name="j_username"], input[type="text"]', { 
-        timeout: 10000 
+        timeout: 20000 
       });
 
+      // Fill credentials
+      this.logger.debug('Fülle Anmeldedaten aus...');
       await this.page.fill('input[name="j_username"], input[type="text"]', config.username);
       await this.page.fill('input[name="j_password"], input[type="password"]', config.password);
 
+      // Click login button
+      this.logger.debug('Klicke Login-Button...');
       await this.page.click('button[type="submit"], input[type="submit"]');
 
+      // Wait for redirect with multiple fallbacks
+      this.logger.debug('Warte auf Weiterleitung...');
       try {
-        await this.page.waitForURL('**/startpage-workshop**', { timeout: 30000 });
+        await this.page.waitForURL('**/startpage-workshop**', { timeout: 60000 });
+        this.logger.debug('Erfolgreich zu startpage-workshop weitergeleitet');
       } catch (error) {
-        await this.page.waitForURL('https://aos.bmwgroup.com/**', { timeout: 30000 });
+        this.logger.debug('Fallback: Warte auf aos.bmwgroup.com...');
+        await this.page.waitForURL('https://aos.bmwgroup.com/**', { timeout: 60000 });
+        this.logger.debug('Erfolgreich zu aos.bmwgroup.com weitergeleitet');
       }
 
+      // Additional wait for page to fully load
       await this.page.waitForLoadState('networkidle');
+      await this.delay(2000); // Additional 2 second wait
 
+      // Verify login success
       const currentUrl = this.page.url();
+      this.logger.debug(`Aktuelle URL nach Login: ${currentUrl}`);
+      
       if (currentUrl.includes('startpage-workshop') || currentUrl.includes('aos.bmwgroup.com')) {
         this.isLoggedIn = true;
         this.logger.info('✅ Login erfolgreich!');
@@ -170,13 +222,19 @@ export class BMWProvider extends BaseProvider {
     try {
       if (!this.page) throw new Error('Browser page not available');
 
+      // Navigate directly to the application with extended timeout
+      this.logger.debug(`Lade ${appName} Seite: ${appUrl}`);
       await this.page.goto(appUrl, {
         waitUntil: 'networkidle',
-        timeout: 60000
+        timeout: 90000 // Increased timeout to 90 seconds
       });
 
+      // Wait for the page to load completely
       await this.page.waitForLoadState('domcontentloaded');
-      await this.delay(3000);
+      await this.delay(5000); // Increased wait time
+
+      const currentUrl = this.page.url();
+      this.logger.debug(`✅ Erfolgreich zu ${appName} navigiert: ${currentUrl}`);
 
       const downloads = await this.findDownloads(appType);
       this.logger.info(`✅ ${downloads.length} Downloads für ${appName} gefunden`);
@@ -191,16 +249,25 @@ export class BMWProvider extends BaseProvider {
   private async findDownloads(appType: 'ista-p' | 'ista-next'): Promise<ProviderDownload[]> {
     if (!this.page) return [];
 
-    this.logger.debug('Warte auf Frames...');
-    
+    const appName = appType === 'ista-p' ? 'ISTA-P' : 'ISTA-Next';
+    this.logger.info(`🔍 Suche nach Downloads auf der ${appName} Seite...`);
+
     try {
-      await this.page.waitForFunction(() => {
-        const frames = document.querySelectorAll('iframe');
-        return frames.length > 0;
-      }, { timeout: 10000 });
-    } catch (e) {
-      this.logger.debug('Keine Frames gefunden, suche in Hauptseite');
-    }
+      // Wait for the page to be fully loaded
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.delay(3000); // Wait for dynamic content to load
+
+      // Wait for frames to load
+      this.logger.debug('Warte auf Frames...');
+      try {
+        await this.page.waitForFunction(() => {
+          const frames = document.querySelectorAll('iframe');
+          return frames.length > 0;
+        }, { timeout: 15000 }); // Increased timeout
+        this.logger.debug('Frames gefunden');
+      } catch (e) {
+        this.logger.debug('Keine Frames gefunden, suche nur in Hauptseite');
+      }
 
     const downloadsData = await this.page.evaluate(() => {
       const foundDownloads: any[] = [];
@@ -278,9 +345,13 @@ export class BMWProvider extends BaseProvider {
           }
         });
       }
-    }
+          }
 
     return downloads;
+    } catch (error) {
+      this.logger.error(`❌ Fehler beim Suchen nach Downloads: ${error}`);
+      return [];
+    }
   }
 
   private categorizeDownload(title: string, categories: string[]): string | null {
@@ -333,6 +404,20 @@ export class BMWProvider extends BaseProvider {
     this.logger.info(`📥 Lade herunter: ${download.displayName}`);
 
     try {
+      const config = this.getBMWConfig();
+      
+      // Create filename based on category and original title
+      const category = download.category;
+      const fileName = download.title;
+      const storageDir = path.join(config.downloadPath, category);
+      
+      // Ensure storage directory exists
+      await fs.ensureDir(storageDir);
+      
+      // Define the storage path in the BMW folder
+      const storagePath = path.join(storageDir, fileName);
+      
+      // Download to storage path first
       const response = await axios({
         method: 'get',
         url: download.url,
@@ -347,7 +432,7 @@ export class BMWProvider extends BaseProvider {
         timeout: 300000 // 5 minutes
       });
 
-      const writer = createWriteStream(targetPath);
+      const writer = createWriteStream(storagePath);
       response.data.pipe(writer);
 
       await new Promise<void>((resolve, reject) => {
@@ -355,9 +440,18 @@ export class BMWProvider extends BaseProvider {
         writer.on('error', reject);
       });
 
-      const stats = await fs.stat(targetPath);
+      const stats = await fs.stat(storagePath);
       if (stats.size > 0) {
-        this.logger.info(`✅ Download abgeschlossen: ${path.basename(targetPath)} (${this.formatFileSize(stats.size)})`);
+        this.logger.info(`✅ Datei gespeichert in BMW-Ordner: ${storagePath} (${this.formatFileSize(stats.size)})`);
+        
+        // Also copy to target path if different
+        if (targetPath !== storagePath) {
+          const targetDir = path.dirname(targetPath);
+          await fs.ensureDir(targetDir);
+          await fs.copy(storagePath, targetPath);
+          this.logger.info(`📁 Zusätzlich kopiert nach: ${targetPath}`);
+        }
+        
         return true;
       } else {
         throw new Error('Downloaded file is empty');
@@ -375,6 +469,78 @@ export class BMWProvider extends BaseProvider {
     }
   }
 
+  async scanExistingFiles(): Promise<ProviderDownload[]> {
+    this.logger.info('📂 Scanne existierende BMW-Dateien für initiale Registrierung...');
+    
+    const config = this.getBMWConfig();
+    if (!await fs.pathExists(config.downloadPath)) {
+      this.logger.warn(`BMW download path does not exist: ${config.downloadPath}`);
+      return [];
+    }
+
+    const existingFiles: ProviderDownload[] = [];
+    
+    // Check BMW categories based on folder structure
+    const bmwCategories = ['ista-p', 'ista-next'];
+    
+    for (const category of bmwCategories) {
+      const categoryPath = path.join(config.downloadPath, category);
+      
+      if (await fs.pathExists(categoryPath)) {
+        const categoryFiles = await this.scanBMWDirectoryForExisting(categoryPath, category);
+        existingFiles.push(...categoryFiles);
+      }
+    }
+
+    this.logger.info(`📊 ${existingFiles.length} existierende BMW-Dateien zur Registrierung gefunden`);
+    return existingFiles;
+  }
+
+  private async scanBMWDirectoryForExisting(dirPath: string, category: string): Promise<ProviderDownload[]> {
+    const files: ProviderDownload[] = [];
+    
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
+        
+        if (entry.isDirectory()) {
+          // Recursively scan subdirectories
+          const subDirFiles = await this.scanBMWDirectoryForExisting(fullPath, category);
+          files.push(...subDirFiles);
+        } else if (entry.isFile()) {
+          const stats = await fs.stat(fullPath);
+          const config = this.getBMWConfig();
+          const relativePath = path.relative(config.downloadPath, fullPath);
+          
+          const download: ProviderDownload = {
+            title: entry.name,
+            version: this.extractVersion(entry.name),
+            url: fullPath, // Use full path as URL for existing files
+            category,
+            displayName: `BMW ${category.toUpperCase()} - ${entry.name}`,
+            method: 'existing_file',
+            fileSize: stats.size,
+            metadata: {
+              relativePath,
+              lastModified: stats.mtime.toISOString(),
+              syncMethod: 'existing',
+              isExisting: true,
+              bmwCategory: category
+            }
+          };
+          
+          files.push(download);
+        }
+      }
+    } catch (error) {
+      this.logger.error(`❌ Fehler beim Scannen von ${dirPath}: ${error}`);
+    }
+    
+    return files;
+  }
+
   async cleanup(): Promise<void> {
     if (this.browser) {
       await this.browser.close();
@@ -384,5 +550,6 @@ export class BMWProvider extends BaseProvider {
       this.isLoggedIn = false;
       this.logger.info('🔒 Browser geschlossen');
     }
+    this.logger.info('🧹 BMW Provider bereinigt');
   }
 }

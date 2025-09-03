@@ -4,44 +4,66 @@ import {
   Download,
   Settings2,
   Server,
-  FileText,
+  Users,
+  Key,
   Activity,
   HardDrive
 } from 'lucide-react';
 import { useProviders, useDownloadStats } from '@/hooks/useApi';
 import { cn, formatNumber } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
 
-const navigationItems = [
+const getNavigationItems = (userRole?: 'user' | 'admin') => [
   {
     name: 'Dashboard',
     href: '/',
     icon: LayoutDashboard,
     current: false,
+    adminOnly: false,
   },
   {
     name: 'Downloads',
     href: '/downloads',
     icon: Download,
     current: false,
+    adminOnly: false,
   },
   {
     name: 'Provider',
     href: '/providers',
     icon: Server,
     current: false,
+    adminOnly: true,
+  },
+  {
+    name: 'Benutzerverwaltung',
+    href: '/users',
+    icon: Users,
+    current: false,
+    adminOnly: true,
+  },
+  {
+    name: 'API Tokens',
+    href: '/tokens',
+    icon: Key,
+    current: false,
+    adminOnly: true,
   },
   {
     name: 'Einstellungen',
     href: '/settings',
     icon: Settings2,
     current: false,
+    adminOnly: true,
   },
-];
+].filter(item => !item.adminOnly || userRole === 'admin');
 
 export function Sidebar() {
   const { data: providers } = useProviders();
   const { data: downloadStats } = useDownloadStats();
+  const { user } = useAuth();
 
+  const navigationItems = getNavigationItems(user?.role);
   const activeProviders = providers?.filter(p => p.enabled && p.status === 'active').length || 0;
   const totalDownloads = downloadStats?.totalDownloads || 0;
 
@@ -49,13 +71,13 @@ export function Sidebar() {
     <div className="hidden md:flex md:w-64 md:flex-col">
       <div className="flex-1 flex flex-col min-h-0 bg-white border-r border-gray-200">
         {/* Logo */}
-        <div className="flex items-center h-16 flex-shrink-0 px-4 border-b border-gray-200">
+        <div className="flex items-center h-12 flex-shrink-0 px-4 border-b border-gray-200">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center">
-              <HardDrive className="w-4 h-4 text-white" />
+            <div className="w-4 h-4 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center">
+              <HardDrive className="w-2 h-2 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-gray-900">IAM File Server</h1>
+              <h1 className="text-normal font-semibold text-gray-900">IAM-NET - Fileserver</h1>
             </div>
           </div>
         </div>
@@ -123,8 +145,8 @@ export function Sidebar() {
         {/* Footer */}
         <div className="flex-shrink-0 p-4 border-t border-gray-200">
           <div className="text-xs text-gray-500 text-center">
-            <p>IAM-NET.eu</p>
-            <p className="mt-1">File Server v1.0</p>
+            <p>IAM-NET.eu - File Server v1.0.0</p>
+            <p className="mt-1">Maintained by <a href="https://linkedin.com/in/niklas-terhorst" target="_blank" rel="noopener noreferrer" className="text-primary-500 hover:text-primary-600">Niklas Terhorst</a></p>
           </div>
         </div>
       </div>

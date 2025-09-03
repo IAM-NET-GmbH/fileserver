@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Server,
@@ -10,7 +11,8 @@ import {
   RefreshCw,
   Settings,
   ExternalLink,
-  Activity
+  Activity,
+  Plus
 } from 'lucide-react';
 import {
   useProviders,
@@ -19,14 +21,35 @@ import {
   useCheckProvider,
   useCheckAllProviders
 } from '@/hooks/useApi';
+import { useServerSentEvents } from '@/hooks/useServerSentEvents';
 import { formatProviderStatus, getStatusColor, formatRelativeTime, cn } from '@/lib/utils';
+import { ProviderConfig } from '@/components/ProviderConfig';
+import { CreateProviderModal } from '@/components/CreateProviderModal';
 
 export function Providers() {
-  const { data: providers, isLoading, error } = useProviders();
+  const { data: providers, isLoading, error, isFetching, isRefetching } = useProviders();
   const enableProvider = useEnableProvider();
   const disableProvider = useDisableProvider();
   const checkProvider = useCheckProvider();
   const checkAllProviders = useCheckAllProviders();
+  const [configProvider, setConfigProvider] = useState<any>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
+  const { refreshProviders } = useServerSentEvents();
+
+  // Update last update time when data changes
+  useEffect(() => {
+    if (providers && !isLoading) {
+      setLastUpdateTime(new Date());
+    }
+  }, [providers, isLoading]);
+
+  // Show subtle notification when data updates in background
+  useEffect(() => {
+    if (!isLoading && isFetching) {
+      console.log('Provider data is being refreshed in background...');
+    }
+  }, [isFetching, isLoading]);
 
   const handleToggleProvider = (id: string, enabled: boolean) => {
     if (enabled) {
@@ -38,6 +61,23 @@ export function Providers() {
 
   const handleCheckProvider = (id: string) => {
     checkProvider.mutate(id);
+  };
+
+  const handleRescanProvider = (id: string) => {
+    if (window.confirm('Soll eine manuelle Neuscannung der Provider-Dateien durchgeführt werden?')) {
+      // Call rescan API endpoint
+      fetch(`/api/providers/${id}/rescan`, { method: 'POST' })
+        .then(response => {
+          if (response.ok) {
+            console.log(`Manual rescan triggered for provider ${id}`);
+          } else {
+            console.error(`Failed to trigger rescan for provider ${id}`);
+          }
+        })
+        .catch(error => {
+          console.error(`Error triggering rescan for provider ${id}:`, error);
+        });
+    }
   };
 
   const handleCheckAll = () => {
@@ -59,14 +99,47 @@ export function Providers() {
 
   if (error) {
     return (
-      <div className="text-center py-12">
-        <div className="text-red-600 mb-4">
-          <Server className="w-12 h-12 mx-auto" />
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Provider</h1>
+          <p className="mt-1 text-gray-600">Provider-Konfiguration und Status</p>
         </div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">
-          Fehler beim Laden der Provider
-        </h2>
-        <p className="text-gray-600">{error.message}</p>
+        
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <div className="text-red-500">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h4 className="text-sm font-medium text-red-800">
+                Backend nicht erreichbar
+              </h4>
+              <p className="text-xs text-red-600 mt-1">
+                {error.message}
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-2 text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200 transition-colors"
+              >
+                Erneut versuchen
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <div className="text-center py-8">
+          <div className="text-red-600 mb-4">
+            <Server className="w-12 h-12 mx-auto" />
+          </div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            Provider können nicht geladen werden
+          </h2>
+          <p className="text-gray-600">
+            Bitte überprüfen Sie die Backend-Verbindung
+          </p>
+        </div>
       </div>
     );
   }
@@ -90,9 +163,17 @@ export function Providers() {
               </div>
             </div>
           ))}
-        </div>
-      </div>
-    );
+              </div>
+
+      {/* Provider Configuration Modal */}
+      {configProvider && (
+        <ProviderConfig
+          provider={configProvider}
+          onClose={() => setConfigProvider(null)}
+        />
+      )}
+    </div>
+  );
   }
 
   return (
@@ -105,17 +186,44 @@ export function Providers() {
             Verwalten Sie Ihre Download-Provider
           </p>
         </div>
-        <button
-          onClick={handleCheckAll}
-          disabled={checkAllProviders.isPending}
-          className={cn(
-            "btn-primary flex items-center space-x-2",
-            checkAllProviders.isPending && "opacity-50 cursor-not-allowed"
+        <div className="flex items-center space-x-4">
+          {(isFetching || isRefetching) && (
+            <div className="flex items-center space-x-2 text-sm text-gray-600">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>Aktualisiere...</span>
+            </div>
           )}
-        >
-          <RefreshCw className={cn("w-4 h-4", checkAllProviders.isPending && "animate-spin")} />
-          <span>Alle prüfen</span>
-        </button>
+          <div className="text-xs text-gray-500">
+            Zuletzt: {formatRelativeTime(lastUpdateTime)}
+          </div>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="btn-primary flex items-center space-x-2"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Provider erstellen</span>
+          </button>
+          <button
+            onClick={refreshProviders}
+            disabled={isFetching}
+            className="btn btn-outline flex items-center space-x-2"
+            title="Provider-Status aktualisieren"
+          >
+            <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
+            <span>Aktualisieren</span>
+          </button>
+          <button
+            onClick={handleCheckAll}
+            disabled={checkAllProviders.isPending}
+            className={cn(
+              "btn-secondary flex items-center space-x-2",
+              checkAllProviders.isPending && "opacity-50 cursor-not-allowed"
+            )}
+          >
+            <RefreshCw className={cn("w-4 h-4", checkAllProviders.isPending && "animate-spin")} />
+            <span>Alle prüfen</span>
+          </button>
+        </div>
       </div>
 
       {/* Summary Stats */}
@@ -280,14 +388,25 @@ export function Providers() {
                       )} />
                     </button>
 
-                    {/* Settings */}
-                    <Link
-                      to={`/providers/${provider.id}`}
+                    {/* Manual Rescan */}
+                    <button
+                      onClick={() => handleRescanProvider(provider.id)}
                       className="btn-secondary btn-sm"
-                      title="Provider-Einstellungen"
+                      title="Dateien erneut scannen"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    </button>
+
+                    {/* Settings */}
+                    <button
+                      onClick={() => setConfigProvider(provider)}
+                      className="btn-secondary btn-sm"
+                      title="Provider konfigurieren"
                     >
                       <Settings className="w-4 h-4" />
-                    </Link>
+                    </button>
 
                     {/* View Details */}
                     <Link
@@ -336,6 +455,25 @@ export function Providers() {
             Es sind noch keine Download-Provider konfiguriert.
           </p>
         </div>
+      )}
+
+      {/* Provider Configuration Modal */}
+      {configProvider && (
+        <ProviderConfig
+          provider={configProvider}
+          onClose={() => setConfigProvider(null)}
+        />
+      )}
+
+      {/* Create Provider Modal */}
+      {showCreateModal && (
+        <CreateProviderModal
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={() => {
+            setShowCreateModal(false);
+            refreshProviders();
+          }}
+        />
       )}
     </div>
   );

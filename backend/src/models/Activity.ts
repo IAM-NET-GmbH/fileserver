@@ -71,7 +71,7 @@ export class ActivityLogger {
     });
   }
 
-  static logAuth(action: string, status: 'success' | 'error', details?: string): void {
+  static logAuth(action: string, status: 'success' | 'error' | 'info', details?: string): void {
     this.log({
       type: 'auth',
       action,
